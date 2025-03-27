@@ -1393,7 +1393,14 @@ class Detections:
 
         return Detections.merge(result)
 
+    # def from_darwin(self, img_file_name, ann_filename, class_names):
+    #     import json
+    #     with open(ann_filename, "r") as json_file:
+    #         jsondata = json.load(json_file)
+    #     for p in jsondata["annotations"]:
 
+
+    ## TODO update with to_darwin and put write_darwin_json in darwin.py
     def write_darwin_json(self,
         # img_filename: Path,
         # anns: list[Annotation],
