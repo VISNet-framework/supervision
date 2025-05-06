@@ -606,6 +606,24 @@ class DetectionDataset(BaseDataset):
             force_masks=force_masks,
         )
         return DetectionDataset(classes=classes, images=images, annotations=annotations)
+    
+    @classmethod
+    def from_darwin(
+        cls,
+        images_directory_path: str,
+        annotations_path: str,
+        classes: list,
+        force_masks: bool = False,
+    ) -> DetectionDataset:
+        from supervision.dataset.formats import darwin
+
+        classes, images, annotations = darwin.load_darwin_annotations(
+            images_directory_path=images_directory_path,
+            annotations_path=annotations_path,
+            force_masks=force_masks,
+            classes = classes,
+        )
+        return DetectionDataset(classes=classes, images=images, annotations=annotations)
 
     def as_coco(
         self,

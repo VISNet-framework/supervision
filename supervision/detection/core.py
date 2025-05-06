@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+
 from enum import Enum
+from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Tuple, Union
 
 import numpy as np
@@ -1434,6 +1436,221 @@ class Detections:
             result.append(merged_detections)
 
         return Detections.merge(result)
+
+    # def from_darwin(self, img_file_name, ann_filename, class_names):
+    #     import json
+    #     with open(ann_filename, "r") as json_file:
+    #         jsondata = json.load(json_file)
+    #     for p in jsondata["annotations"]:
+
+
+    ## TODO update with to_darwin and put write_darwin_json in darwin.py
+    def write_darwin_json(self,
+        # img_filename: Path,
+        # anns: list[Annotation],
+        # cfg: Config,
+        img_filename: None,
+        output_folder: Path = Path(""),
+        height: int=0,
+        width: int=0,
+        darwin_folder: Path = Path(""),
+        darwin_dataset_name: str="",
+        class_names: list=[],
+        ignore_classes: list=[],
+        properties: list=[],
+        tags: list=[],
+        write=True,
+        # ignore_classes: list[str] = [],
+        # preannotate: bool = 0,
+        # img_sz: list[
+        #     int
+        # ] = [],  # 20250107: supplying img_sz instead of opening the image makes it faster
+        # tags: list[str] = [],
+    ):
+        """Writes a darwin json file
+
+        Args:
+            img_filename (Path): image filename
+            anns (list[Annotation]): annotations in mlutils format
+            cfg (Config): mlutils config object
+            output_folder (Path, optional): overrides output folder. Defaults to None.
+            darwin_folder (Path, optional): overrides darwin folder. Defaults to Path("").
+            ignore_classes (list[str], optional): list of classes to ignore. Defaults to [].
+            preannotate (bool, optional): force writes when 1. Defaults to 0.
+            img_sz (list[int], optional): image size of image. Defaults to [].
+            tags (list[str], optional): list of tags. Defaults to [].
+
+        Returns:
+            Path: darwin json filename
+        """
+        import random
+        import mlutils.imops.box_operations as bops
+        import mlutils.imops.image_operations as imops
+        import json
+
+        if output_folder is None:
+            # output_folder = (
+            #     cfg.experiment_folder_models_target_model_ver_weights_inference_folder
+            # )
+            output_folder = Path("output")
+        # darwin_folder = file_name.relative_to(cfg.test_img_dir).parent
+
+        output_folder.mkdir(exist_ok=True, parents=True)
+        ann_name = (output_folder / img_filename.name).with_suffix(".json")
+        if height==0 or width==0:
+            import cv2
+            img_cv2 = cv2.imread(str(img_filename))
+            width = img_cv2.shape[1]
+            height = img_cv2.shape[0]
+
+        # if properties!=[]:
+        #     assert len(properties) == len(self), "Properties need to be the same length as detections."
+        # else:
+        #     properties = [[]]*len(self)
+        item_id = "".join(random.choices("abcdef0123456789", k=8))
+        item_id = item_id + "-" + "".join(random.choices("abcdef0123456789", k=4))
+        item_id = item_id + "-" + "".join(random.choices("abcdef0123456789", k=4))
+        item_id = item_id + "-" + "".join(random.choices("abcdef0123456789", k=4))
+        item_id = item_id + "-" + "".join(random.choices("abcdef0123456789", k=12))
+
+        writedata = {}
+        writedata["version"] = str(2.0)
+        writedata[
+            "schema_ref"
+        ] = "https://darwin-public.s3.eu-west-1.amazonaws.com/darwin_json_2_0.schema.json"
+        writedata["item"] = {
+            "name": img_filename.name,
+            "path": str(darwin_folder),
+            "source_info": {
+                "item_id": str(item_id),
+                "dataset": {
+                    "name": darwin_dataset_name,
+                    "slug": darwin_dataset_name.lower(),
+                    "dataset_management_url": "https://darwin.v7labs.com/",
+                },
+                "team": {
+                    "name": "WUR AgroFoodRobotics",
+                    "slug": "wur-agrofoodrobotics",
+                },
+                "workview_url": "https://darwin.v7labs.com/",
+            },
+            "slots": [
+                {
+                    "type": "image",
+                    "slot_name": "0",
+                    "width": width,
+                    "height": height,
+                    "thumbnail_url": "",
+                    "source_files": [
+                        {
+                            "file_name": img_filename.name,
+                            "url": "https://darwin.v7labs.com/",
+                            "local_path": str(img_filename),
+                        }
+                    ],
+                }
+            ],
+        }
+        writedata["annotations"] = []
+        for xyxy, mask, confidence, class_id, tracker_id, data in self:
+            # if a.cl not in ignore_classes:
+
+            if class_id in ignore_classes:
+                continue
+
+            item_id = "".join(random.choices("abcdef0123456789", k=8))
+            item_id = item_id + "-" + "".join(random.choices("abcdef0123456789", k=4))
+            item_id = item_id + "-" + "".join(random.choices("abcdef0123456789", k=4))
+            item_id = item_id + "-" + "".join(random.choices("abcdef0123456789", k=4))
+            item_id = item_id + "-" + "".join(random.choices("abcdef0123456789", k=12))
+
+
+            b = bops.xyxy2xywh(xyxy)
+            b = list(map(float, b))
+
+            b[0] = max(b[0], 0)
+            b[1] = max(b[1], 0)
+
+            if b[0] >= 0 and b[1] >= 0 and b[2] >= 0 and b[3] >= 0:
+                bbox = {"h": b[3], "w": b[2], "x": b[0], "y": b[1]}
+                cl = class_names[class_id - 1]
+
+                if mask is not None:
+                    p = imops.mask2polygon(mask)
+                    paths = []
+
+                    for px in p:
+                        try:
+                            px = np.reshape(px, (-1, 2))
+                            #TODO: Add a way to make polygons coarser/finer
+                            if len(px) > 3:
+                                pxs = [{"x": int(x), "y": int(y)} for x, y in px]
+                                paths.append(pxs)
+                        except:
+                            pass
+
+                    # item_id = item_id+1
+                    if len(paths) > 0:
+                        writedata["annotations"].append(
+                            {
+                                "bounding_box": bbox,
+                                "id": str(item_id),
+                                "instance_id": data.get("instance_id", {"value": None})[0],
+                                "name": cl,
+                                "polygon": {"paths": paths},
+                                "properties": data.get("properties", [[]])[0],
+                                "slot_names": ["0"],
+                                "score": str(confidence),
+                            }
+                        )
+                    else:
+                        writedata["annotations"].append(
+                            {
+                                "bounding_box": bbox,
+                                "id": str(item_id),
+                                "instance_id": data.get("instance_id", {"value": None})[0],
+                                "name": cl,
+                                "polygon": {"paths": []},
+                                "properties": data.get("properties", [[]])[0],
+                                "slot_names": ["0"],
+                                "score": str(confidence),
+                            }
+                        )
+                else:
+                    writedata["annotations"].append(
+                        {
+                            "bounding_box": bbox,
+                            "id": str(item_id),
+                            "instance_id": data.get("instance_id", {"value": None}),
+                            "name": cl,
+                            "properties": data.get("properties", []),
+                            "slot_names": ["0"],
+                            "score": str(confidence),
+                        }
+                    )
+
+            else:
+                print("Error in box coordinates! {}".format(b))
+
+        for t in tags:
+            writedata["annotations"].append(
+                {
+                    "id": str(item_id),
+                    "name": t,
+                    "properties": [],
+                    "slot_names": ["0"],
+                    "tag": {},
+                }
+            )
+
+        # for inference, we need to allow overwriting?
+        if not write:
+            return writedata
+        with open(ann_name, "w") as outfile:
+            json.dump(writedata, outfile, indent=5, sort_keys=False)
+        outfile.close()
+
+    # return ann_name
 
 
 def merge_inner_detection_object_pair(
