@@ -57,6 +57,33 @@ def list_files_with_extensions(
     return files_with_extensions
 
 
+def list_files_with_extensions_recursively(
+    directory: Union[str, Path], extensions: Optional[List[str]] = None
+) -> List[Path]:
+    """
+    List files in a directory and its subdirectories with specified extensions
+        or all files if no extensions are provided.
+
+    Args:
+        directory (Union[str, Path]): The directory path as a string or Path object.
+        extensions (Optional[List[str]]): A list of file extensions to filter.
+            Default is None, which lists all files.
+
+    Returns:
+        (List[Path]): A list of Path objects for the matching files.
+    """
+    directory = Path(directory)
+    files_with_extensions = []
+
+    if extensions is not None:
+        for ext in extensions:
+            files_with_extensions.extend(directory.rglob(f"*.{ext}"))
+    else:
+        files_with_extensions.extend(directory.rglob("*"))
+
+    return files_with_extensions
+
+
 def read_txt_file(file_path: Union[str, Path], skip_empty: bool = False) -> List[str]:
     """
     Read a text file and return a list of strings without newline characters.
