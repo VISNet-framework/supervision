@@ -238,7 +238,7 @@ def detections_to_darwin_annotations(
         assert not x1y1wh[3] < 0, f"Negative h {x1y1wh[3]} in {image_filename}"
 
         bbox = {"h": x1y1wh[3], "w": x1y1wh[2], "x": x1y1wh[0], "y": x1y1wh[1]}
-        class_name = classes[class_id]
+        class_name = classes[int(class_id)]
 
         annotation = {
             "bounding_box": bbox,
