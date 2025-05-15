@@ -94,6 +94,13 @@ def darwin_annotations_to_detections_dict(
                     resolution_wh=(width, height),
                 )
                 masks.append(mask)
+    ## to deal with empty darwin files
+    if xyxy==[]:
+        xyxy = np.empty((0, 4), dtype=np.float32)
+        class_ids = np.array([], dtype=int)
+        if with_masks:
+            masks = np.empty((0, int(data["item"]["slots"][0]["height"]), int(data["item"]["slots"][0]["width"])), dtype=np.uint8)
+    
     xyxy = np.asarray(xyxy)
     class_ids = np.asarray(class_ids, dtype=int)
     assert xyxy.shape[0] == len(class_ids), (
