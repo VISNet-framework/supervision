@@ -38,7 +38,7 @@ jobs:
 
     - name: Lint with Ruff
       run: |
-        ruff check mlutils
+        ruff check supervision
 
     - name: Test with pytest
       run: |
