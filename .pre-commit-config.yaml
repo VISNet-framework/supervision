@@ -13,6 +13,10 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
+      - id: no-commit-to-branch
+        args: [--branch, main_wur]
+      - id: no-commit-to-branch
+        args: [--branch, no_mlutils_dep]
       - id: trailing-whitespace
         exclude: test/.*\.py
       - id: check-yaml
