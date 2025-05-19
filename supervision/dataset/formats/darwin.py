@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Dict, List, Tuple
 
 import numpy as np
 from natsort import natsorted
+import cv2
 
 from supervision.dataset.utils import (
     approximate_mask_with_polygons,
@@ -54,6 +55,7 @@ def load_darwin_annotations(
     annotation_directory_path: str | Path,
     classes: list[str],
     force_masks: bool = False,
+    force_track_ids: bool = False,
 ) -> Tuple[List[str], List[str], Dict[str, Detections]]:
     """
     Load Darwin annotations from a directory.
@@ -65,6 +67,9 @@ def load_darwin_annotations(
         classes (list[str]): List of class names.
         force_masks (bool): Whether to force loading masks. Default is False.
     """
+    ## TODO implement loading of metadata using json:
+    # current idea at image location replace.png/.jpg with .json
+
     images_directory_path = Path(images_directory_path)
     annotation_directory_path = Path(annotation_directory_path)
     images_paths, annotation_paths = find_valid_images_and_annotations(
@@ -80,6 +85,8 @@ def load_darwin_annotations(
             with_masks=force_masks,
             classes=classes,
             skip_unknown_classes=True,
+            with_track_ids = force_track_ids,
+            # metadata = utils.load_json(img_name.parent / (img_name.stem + ".json")
         )
         images.append(str(img_name))
         annotations[str(img_name)] = annotation
@@ -96,7 +103,7 @@ def save_darwin_annotations(
     tags: list = [],
     min_image_area_percentage: float = 0.0,
     max_image_area_percentage: float = 1.0,
-    approximation_percentage: float = 0.75,
+    approximation_percentage: float = 0.0,
 ) -> None:
     """
     Save Darwin annotations to a directory.
@@ -114,7 +121,7 @@ def save_darwin_annotations(
         max_image_area_percentage (float):
             Maximum area percentage polygon wrt image. Default is 1.0.
         approximation_percentage (float):
-            Percentage of points for polygon approximation. Default is 0.75.
+            Percentage of points for polygon approximation. Default is 0.0 (keep all polygon).
     """
     annotation_directory_path = Path(annotation_directory_path)
     annotation_directory_path.mkdir(parents=True, exist_ok=True)
@@ -143,6 +150,118 @@ def save_darwin_annotations(
     return
 
 
+def detection_mask_to_darwin(annotation, mask, min_image_area_percentage, max_image_area_percentage, approximation_percentage):
+    if mask is not None:
+        # polygons = mask_to_polygons(mask)
+        polygons = approximate_mask_with_polygons(
+            mask=mask,
+            min_image_area_percentage=min_image_area_percentage,
+            max_image_area_percentage=max_image_area_percentage,
+            approximation_percentage=approximation_percentage,
+        )
+
+        paths = []
+        for poly in polygons:
+            poly = np.reshape(poly, (-1, 2))
+            paths.append([{"x": int(x), "y": int(y)} for x, y in poly])
+
+        annotation["polygon"] = {"paths": paths}
+    return annotation
+
+
+def detection_box_to_darwin(xyxy, classes, class_id, item_id, mask=None, tracker_id=None, properties=[], confidence=None):
+    x1y1wh = xyxy.copy()
+    x1y1wh[2] = xyxy[2] - xyxy[0]
+    x1y1wh[3] = xyxy[3] - xyxy[1]
+
+    # TODO ask bart if we need to check if bbox is inside image -> BART please do not include this because original darwin boxes also can be negative!
+    # or lager than image size
+    # x1y1wh[0] = max(x1y1wh[0], 0)
+    # x1y1wh[1] = max(x1y1wh[1], 0)
+
+    # assert not x1y1wh[0] < 0, f"Negative x1 {x1y1wh[0]} in {image_filename}"
+    # assert not x1y1wh[1] < 0, f"Negative y1 {x1y1wh[1]} in {image_filename}"
+    # assert not x1y1wh[2] < 0, f"Negative w {x1y1wh[2]} in {image_filename}"
+    # assert not x1y1wh[3] < 0, f"Negative h {x1y1wh[3]} in {image_filename}"
+
+    bbox = {
+        "h": float(x1y1wh[3]),
+        "w": float(x1y1wh[2]),
+        "x": float(x1y1wh[0]),
+        "y": float(x1y1wh[1]),
+    }
+    class_name = classes[int(class_id)]
+
+    annotation = {
+        "bounding_box": bbox,
+        "id": str(item_id),
+        "instance_id": {"value": int(tracker_id)},
+        "name": class_name,
+        "properties": properties, #detections.metadata.get(i, {"properties": [[]]}).get("properties", [[]])[0],
+        "slot_names": ["0"],
+        # "score": str(confidence),
+    }
+    if confidence is not None:
+        annotation["score"] = str(float(confidence))
+    return annotation
+
+
+def xyxyxyxy_to_darwin_ellipse(xyxyxyxy):
+    """
+    Estimate Darwin ellipse parameters from 4 points (xyxyxyxy).
+    Assumes the points are ordered as in darwin_ellipse_to_xyxyxyxy.
+
+    Args:
+        xyxyxyxy (list or np.ndarray): List of 4 [x, y] points.
+
+    Returns:
+        dict: {
+            "center": {"x": float, "y": float},
+            "radius": {"x": float, "y": float},
+            "angle": float (radians)
+        }
+    """
+    pts = np.asarray(xyxyxyxy, dtype=np.float32)
+    if pts.shape != (4, 2):
+        raise ValueError("xyxyxyxy must be a list of 4 [x, y] points.")
+
+    # Use OpenCV to fit a rotated rectangle, then extract ellipse parameters
+    rect = cv2.minAreaRect(pts)
+    (cx, cy), (w, h), angle_deg = rect
+
+    # OpenCV angle is in degrees, and refers to the rectangle's orientation
+    # Convert to radians
+    angle_rad = np.deg2rad(angle_deg)
+
+    # The rectangle's width and height correspond to the ellipse's axes
+    rx = w / 2.0
+    ry = h / 2.0
+
+    # Return in Darwin format
+    return {
+        "center": {"x": float(cx), "y": float(cy)},
+        "radius": {"x": float(rx), "y": float(ry)},
+        "angle": float(angle_rad)
+    }
+
+
+def detection_ellipse_to_darwin(xyxyxyxy, classes, class_id, item_id, mask=None, tracker_id=None, properties=[], confidence=None):
+    class_name = classes[int(class_id)]
+
+    annotation = {
+        "ellipse": xyxyxyxy_to_darwin_ellipse(xyxyxyxy),
+        "id": str(item_id),
+        "instance_id": {"value": int(tracker_id)},
+        "name": class_name,
+        "properties": properties, #detections.metadata.get(i, {"properties": [[]]}).get("properties", [[]])[0],
+        "slot_names": ["0"],
+        # "score": str(confidence),
+    }
+    if confidence is not None:
+        annotation["score"] = str(float(confidence))
+    return annotation
+
+
 def detections_to_darwin_annotations(
     detections: Detections,
     image_shape: tuple[int, int],
@@ -153,7 +272,7 @@ def detections_to_darwin_annotations(
     tags: list = [],
     min_image_area_percentage: float = 0.0,
     max_image_area_percentage: float = 1.0,
-    approximation_percentage: float = 0.75,
+    approximation_percentage: float = 0.0,
 ):
     """
     Convert detections to Darwin annotations.
@@ -221,51 +340,28 @@ def detections_to_darwin_annotations(
         ],
     }
     writedata["annotations"] = []
-    for xyxy, mask, confidence, class_id, tracker_id, data in detections:
+    all_properties = detections.data.get("properties", None)
+    for i, (xyxy, mask, confidence, class_id, tracker_id, data) in enumerate(detections):
         item_id = _generate_item_id()
+        # get properties
+        properties = None
+        if all_properties is not None:
+            properties = all_properties[i]
+        
+        ## only for xyxyxyxy (oriented bounding boxes)
+        if data.get("xyxyxyxy", None) is not None:
+            if data["xyxyxyxy"][0] is not None:
+                annotation = detection_ellipse_to_darwin(data["xyxyxyxy"][0],
+                                                         classes, class_id, item_id, mask, tracker_id, properties, confidence)
+                writedata["annotations"].append(annotation)
+                continue
+        ## TODO add keypoints annotations
 
-        x1y1wh = xyxy.copy()
-        x1y1wh[2] = xyxy[2] - xyxy[0]
-        x1y1wh[3] = xyxy[3] - xyxy[1]
-
-        # TODO ask bart if we need to check if bbox is inside image
-        # x1y1wh[0] = max(x1y1wh[0], 0)
-        # x1y1wh[1] = max(x1y1wh[1], 0)
-
-        assert not x1y1wh[0] < 0, f"Negative x1 {x1y1wh[0]} in {image_filename}"
-        assert not x1y1wh[1] < 0, f"Negative y1 {x1y1wh[1]} in {image_filename}"
-        assert not x1y1wh[2] < 0, f"Negative w {x1y1wh[2]} in {image_filename}"
-        assert not x1y1wh[3] < 0, f"Negative h {x1y1wh[3]} in {image_filename}"
-
-        bbox = {"h": x1y1wh[3], "w": x1y1wh[2], "x": x1y1wh[0], "y": x1y1wh[1]}
-        class_name = classes[int(class_id)]
-
-        annotation = {
-            "bounding_box": bbox,
-            "id": str(item_id),
-            "instance_id": {"value": tracker_id},
-            "name": class_name,
-            "properties": data.get("properties", [[]])[0],
-            "slot_names": ["0"],
-            "score": str(confidence),
-        }
-        if mask is not None:
-            # polygons = mask_to_polygons(mask)
-            polygons = approximate_mask_with_polygons(
-                mask=mask,
-                min_image_area_percentage=min_image_area_percentage,
-                max_image_area_percentage=max_image_area_percentage,
-                approximation_percentage=approximation_percentage,
-            )
-
-            paths = []
-            for poly in polygons:
-                poly = np.reshape(poly, (-1, 2))
-                paths.append([{"x": int(x), "y": int(y)} for x, y in poly])
-
-            annotation["polygon"] = {"paths": paths}
-
+        ## target  is bounding box format
+        annotation = detection_box_to_darwin(xyxy, classes, class_id, item_id, mask, tracker_id, properties, confidence)
+        annotation = detection_mask_to_darwin(annotation, mask, min_image_area_percentage, max_image_area_percentage, approximation_percentage)
         writedata["annotations"].append(annotation)
+
 
     for t in tags:
         writedata["annotations"].append(

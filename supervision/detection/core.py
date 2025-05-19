@@ -207,12 +207,16 @@ class Detections:
         with_masks: bool,
         classes: list[str],
         skip_unknown_classes: bool = True,
+        with_track_ids: bool = False,
+        metadata: dict = {},
     ) -> Detections:
         data = darwin_annotations_to_detections_dict(
             json_name=json_name,
             with_masks=with_masks,
             classes=classes,
             skip_unknown_classes=skip_unknown_classes,
+            with_track_ids=with_track_ids,
+            metadata=metadata,
         )
         return cls(**data)
 
