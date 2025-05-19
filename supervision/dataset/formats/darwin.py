@@ -1,6 +1,7 @@
 import os
 import random
 from pathlib import Path
+import uuid
 from typing import TYPE_CHECKING, Dict, List, Tuple
 
 import numpy as np
@@ -124,7 +125,7 @@ def save_darwin_annotations(
         darwin_annotation_path = os.path.join(
             annotation_directory_path, darwin_annotation_name
         )
-        annotation_dict = detections_to_darwin_annotations(
+        annotation_dict = detections_to_darwin_dict(
             detections=annotation,
             image_shape=image.shape,
             image_filename=Path(image_filename),
@@ -143,7 +144,7 @@ def save_darwin_annotations(
     return
 
 
-def detections_to_darwin_annotations(
+def detections_to_darwin_dict(
     detections: Detections,
     image_shape: tuple[int, int],
     image_filename: Path,
@@ -154,6 +155,7 @@ def detections_to_darwin_annotations(
     min_image_area_percentage: float = 0.0,
     max_image_area_percentage: float = 1.0,
     approximation_percentage: float = 0.75,
+    team_slug="wur-agrofoodrobotics",
 ):
     """
     Convert detections to Darwin annotations.
@@ -167,20 +169,12 @@ def detections_to_darwin_annotations(
         tags (list): List of tags to add to the annotations. Default is empty list.
         min_image_area_percentage (float): Min polygon area wrt image.
         max_image_area_percentage (float): Max polygon area wrt image.
-        approximation_percentage (float): Percentage of points for poly approximation.
+        approximation_percentage (float): Percentage of points to remove for poly approximation.
     """
-
-    def _generate_item_id():
-        item_id = "".join(random.choices("abcdef0123456789", k=8))
-        item_id = item_id + "-" + "".join(random.choices("abcdef0123456789", k=4))
-        item_id = item_id + "-" + "".join(random.choices("abcdef0123456789", k=4))
-        item_id = item_id + "-" + "".join(random.choices("abcdef0123456789", k=4))
-        item_id = item_id + "-" + "".join(random.choices("abcdef0123456789", k=12))
-        return item_id
 
     height, width = image_shape[0], image_shape[1]
 
-    item_id = _generate_item_id()
+    item_id = str(uuid.uuid4())
 
     writedata = {}
     writedata["version"] = "2.0"
@@ -198,8 +192,8 @@ def detections_to_darwin_annotations(
                 "dataset_management_url": "https://darwin.v7labs.com/",
             },
             "team": {
-                "name": "WUR AgroFoodRobotics",
-                "slug": "wur-agrofoodrobotics",
+                "name": team_slug,
+                "slug": team_slug,
             },
             "workview_url": "https://darwin.v7labs.com/",
         },
@@ -220,61 +214,117 @@ def detections_to_darwin_annotations(
             }
         ],
     }
-    writedata["annotations"] = []
+    writedata["annotations"] = _detections_to_darwin_annotations(
+        detections=detections,
+        classes=classes,
+        tags=tags,
+        min_image_area_percentage=min_image_area_percentage,
+        max_image_area_percentage=max_image_area_percentage,
+        approximation_percentage=approximation_percentage,
+    )    
+    return writedata
+
+
+def _detections_to_darwin_annotations(
+        detections : Detections,
+        classes : list[str],
+        tags : list[str],
+        min_image_area_percentage : float,
+        max_image_area_percentage : float,
+        approximation_percentage : float,
+    ) -> list[dict]:
+    """
+    Returns annotations in format for darwin json
+
+    Users should use detections_to_darwin_dict instead
+    """
+
+    annotations = []
     for xyxy, mask, confidence, class_id, tracker_id, data in detections:
-        item_id = _generate_item_id()
-
-        x1y1wh = xyxy.copy()
-        x1y1wh[2] = xyxy[2] - xyxy[0]
-        x1y1wh[3] = xyxy[3] - xyxy[1]
-
-        # TODO ask bart if we need to check if bbox is inside image
-        # x1y1wh[0] = max(x1y1wh[0], 0)
-        # x1y1wh[1] = max(x1y1wh[1], 0)
-
-        assert not x1y1wh[0] < 0, f"Negative x1 {x1y1wh[0]} in {image_filename}"
-        assert not x1y1wh[1] < 0, f"Negative y1 {x1y1wh[1]} in {image_filename}"
-        assert not x1y1wh[2] < 0, f"Negative w {x1y1wh[2]} in {image_filename}"
-        assert not x1y1wh[3] < 0, f"Negative h {x1y1wh[3]} in {image_filename}"
-
-        bbox = {"h": x1y1wh[3], "w": x1y1wh[2], "x": x1y1wh[0], "y": x1y1wh[1]}
-        class_name = classes[int(class_id)]
+        ann_id = str(uuid.uuid4())
+        class_name = classes[class_id]
 
         annotation = {
-            "bounding_box": bbox,
-            "id": str(item_id),
-            "instance_id": {"value": tracker_id},
+            "id": str(ann_id),
             "name": class_name,
+            "bounding_box": _detection_xyxy_to_darwin_bbox(xyxy),
+            "instance_id": {"value": tracker_id},
             "properties": data.get("properties", [[]])[0],
             "slot_names": ["0"],
-            "score": str(confidence),
+            "score": float(confidence),
         }
+
         if mask is not None:
-            # polygons = mask_to_polygons(mask)
-            polygons = approximate_mask_with_polygons(
-                mask=mask,
-                min_image_area_percentage=min_image_area_percentage,
-                max_image_area_percentage=max_image_area_percentage,
-                approximation_percentage=approximation_percentage,
+            annotation["polygon"] = _detection_mask_to_darwin_polygon(
+                mask, 
+                min_image_area_percentage, 
+                max_image_area_percentage, 
+                approximation_percentage
             )
 
-            paths = []
-            for poly in polygons:
-                poly = np.reshape(poly, (-1, 2))
-                paths.append([{"x": int(x), "y": int(y)} for x, y in poly])
-
-            annotation["polygon"] = {"paths": paths}
-
-        writedata["annotations"].append(annotation)
+        annotations.append(annotation)
 
     for t in tags:
-        writedata["annotations"].append(
+        tag_id = str(uuid.uuid4())
+        annotations.append(
             {
-                "id": str(item_id),
+                "id": tag_id,
                 "name": t,
                 "properties": [],
                 "slot_names": ["0"],
                 "tag": {},
             }
         )
-    return writedata
+    return annotations
+
+
+
+def _detection_xyxy_to_darwin_bbox(xyxy : np.ndarray) -> dict[str, float]:
+    """
+    xyxy is numpy array of shape (4,)
+    
+    Returns bounding box in format for darwin json
+
+    Users should use detections_to_darwin_dict instead
+    """
+    x1y1wh = xyxy.copy()
+    x1y1wh[2] = xyxy[2] - xyxy[0]
+    x1y1wh[3] = xyxy[3] - xyxy[1]
+
+    # TODO ask bart if we need to check if bbox is inside image
+    # x1y1wh[0] = max(x1y1wh[0], 0)
+    # x1y1wh[1] = max(x1y1wh[1], 0)
+
+    assert not x1y1wh[0] < 0, f"Negative x1 {x1y1wh[0]}"
+    assert not x1y1wh[1] < 0, f"Negative y1 {x1y1wh[1]}"
+    assert not x1y1wh[2] < 0, f"Negative w {x1y1wh[2]}"
+    assert not x1y1wh[3] < 0, f"Negative h {x1y1wh[3]}"
+
+    bbox = {"h": x1y1wh[3], "w": x1y1wh[2], "x": x1y1wh[0], "y": x1y1wh[1]}
+    return bbox
+
+def _detection_mask_to_darwin_polygon(
+        mask : np.ndarray, 
+        min_image_area_percentage : float,
+        max_image_area_percentage : float,
+        approximation_percentage  : float
+    ) -> dict[str, list[dict[str, float]]]:
+    """
+    Returns polygon in format for darwin json
+
+    Users should use detections_to_darwin_dict instead
+    """
+    polygons = approximate_mask_with_polygons(
+        mask=mask,
+        min_image_area_percentage=min_image_area_percentage,
+        max_image_area_percentage=max_image_area_percentage,
+        approximation_percentage=approximation_percentage,
+    )
+
+    paths = []
+    for poly in polygons:
+        poly = np.reshape(poly, (-1, 2))
+        paths.append([{"x": float(x), "y": float(y)} for x, y in poly])
+
+    polygon = {"paths": paths}
+    return polygon

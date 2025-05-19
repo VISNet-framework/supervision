@@ -32,8 +32,8 @@ def darwin_annotations_to_masks(
     for path_points in annotation["polygon"]["paths"]:  # Darwin 2.0
         polygon_x = [p["x"] for p in path_points]
         polygon_y = [p["y"] for p in path_points]
-        points = np.array([polygon_x, polygon_y], dtype=np.int32).T
-        polygons.append(points)
+        polygon = np.array([polygon_x, polygon_y], dtype=np.int32).T
+        polygons.append(polygon)
 
     cv2.fillPoly(mask, polygons, color=1)
     return mask
@@ -48,7 +48,8 @@ def darwin_annotations_to_detections_dict(
     """
     Load Darwin annotations from a JSON file and convert them to
     a dictionary with xyxy, class_id and mask keys.
-    load Detections with Detections.from_darwin method.
+    
+    For users, load Detections with Detections.from_darwin method instead.
 
     Args:
         json_name (str): Path to the JSON file containing annotations.
@@ -69,33 +70,38 @@ def darwin_annotations_to_detections_dict(
 
     xyxy, class_ids, masks = [], [], []
     for annotation in data["annotations"]:
-        if "bounding_box" in annotation:
-            if skip_unknown_classes and annotation["name"] not in classes:
-                print(f"skipping {annotation}")
-                continue
+        if "bounding_box" not in annotation:
+            continue
+        
+        if skip_unknown_classes and annotation["name"] not in classes:
+            print(f"skipping unknown class {annotation["name"]}")
+            continue
+        else:
+            classes.append(annotation["name"])
 
-            assert annotation["name"] in classes, f"Unknown class {annotation['name']}"
+        assert annotation["name"] in classes, f"Unknown class {annotation['name']}"
 
-            class_id = classes.index(annotation["name"])
-            class_ids.append(class_id)
+        class_id = classes.index(annotation["name"])
+        class_ids.append(class_id)
 
-            xyxy.append(
-                [
-                    annotation["bounding_box"]["x"],
-                    annotation["bounding_box"]["y"],
-                    annotation["bounding_box"]["x"] + annotation["bounding_box"]["w"],
-                    annotation["bounding_box"]["y"] + annotation["bounding_box"]["h"],
-                ]
+        xyxy.append(
+            [
+                annotation["bounding_box"]["x"],
+                annotation["bounding_box"]["y"],
+                annotation["bounding_box"]["x"] + annotation["bounding_box"]["w"],
+                annotation["bounding_box"]["y"] + annotation["bounding_box"]["h"],
+            ]
+        )
+
+        if with_masks:
+            mask = darwin_annotations_to_masks(
+                annotation=annotation,
+                resolution_wh=(width, height),
             )
+            masks.append(mask)
 
-            if with_masks:
-                mask = darwin_annotations_to_masks(
-                    annotation=annotation,
-                    resolution_wh=(width, height),
-                )
-                masks.append(mask)
     ## to deal with empty darwin files
-    if xyxy==[]:
+    if len(xyxy) == 0:
         xyxy = np.empty((0, 4), dtype=np.float32)
         class_ids = np.array([], dtype=int)
         if with_masks:
