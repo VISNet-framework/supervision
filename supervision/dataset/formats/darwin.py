@@ -1,12 +1,15 @@
 import os
-import random
-from pathlib import Path
 import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List, Tuple
 
+import cv2
 import numpy as np
 from natsort import natsorted
 
+from supervision.config import (
+    ORIENTED_BOX_COORDINATES,
+)
 from supervision.dataset.utils import (
     approximate_mask_with_polygons,
 )
@@ -55,6 +58,7 @@ def load_darwin_annotations(
     annotation_directory_path: str | Path,
     classes: list[str],
     force_masks: bool = False,
+    force_track_ids: bool = False,
 ) -> Tuple[List[str], List[str], Dict[str, Detections]]:
     """
     Load Darwin annotations from a directory.
@@ -81,6 +85,7 @@ def load_darwin_annotations(
             with_masks=force_masks,
             classes=classes,
             skip_unknown_classes=True,
+            with_track_ids=force_track_ids,
         )
         images.append(str(img_name))
         annotations[str(img_name)] = annotation
@@ -97,7 +102,7 @@ def save_darwin_annotations(
     tags: list = [],
     min_image_area_percentage: float = 0.0,
     max_image_area_percentage: float = 1.0,
-    approximation_percentage: float = 0.75,
+    approximation_percentage: float = 0.0,
 ) -> None:
     """
     Save Darwin annotations to a directory.
@@ -115,7 +120,8 @@ def save_darwin_annotations(
         max_image_area_percentage (float):
             Maximum area percentage polygon wrt image. Default is 1.0.
         approximation_percentage (float):
-            Percentage of points for polygon approximation. Default is 0.75.
+            Percentage of points to remove for polygon approximation.
+            Default is 0.0 (keep all points).
     """
     annotation_directory_path = Path(annotation_directory_path)
     annotation_directory_path.mkdir(parents=True, exist_ok=True)
@@ -154,7 +160,7 @@ def detections_to_darwin_dict(
     tags: list = [],
     min_image_area_percentage: float = 0.0,
     max_image_area_percentage: float = 1.0,
-    approximation_percentage: float = 0.75,
+    approximation_percentage: float = 0.0,
     team_slug="wur-agrofoodrobotics",
 ):
     """
@@ -169,7 +175,8 @@ def detections_to_darwin_dict(
         tags (list): List of tags to add to the annotations. Default is empty list.
         min_image_area_percentage (float): Min polygon area wrt image.
         max_image_area_percentage (float): Max polygon area wrt image.
-        approximation_percentage (float): Percentage of points to remove for poly approximation.
+        approximation_percentage (float): Percentage of points to remove
+            for poly approximation.
     """
 
     height, width = image_shape[0], image_shape[1]
@@ -221,18 +228,18 @@ def detections_to_darwin_dict(
         min_image_area_percentage=min_image_area_percentage,
         max_image_area_percentage=max_image_area_percentage,
         approximation_percentage=approximation_percentage,
-    )    
+    )
     return writedata
 
 
 def _detections_to_darwin_annotations(
-        detections : Detections,
-        classes : list[str],
-        tags : list[str],
-        min_image_area_percentage : float,
-        max_image_area_percentage : float,
-        approximation_percentage : float,
-    ) -> list[dict]:
+    detections: Detections,
+    classes: list[str],
+    tags: list[str],
+    min_image_area_percentage: float,
+    max_image_area_percentage: float,
+    approximation_percentage: float,
+) -> list[dict]:
     """
     Returns annotations in format for darwin json
 
@@ -243,25 +250,29 @@ def _detections_to_darwin_annotations(
     for xyxy, mask, confidence, class_id, tracker_id, data in detections:
         ann_id = str(uuid.uuid4())
         class_name = classes[class_id]
-
+        print(data)
         annotation = {
-            "id": str(ann_id),
+            "id": ann_id,
             "name": class_name,
-            "bounding_box": _detection_xyxy_to_darwin_bbox(xyxy),
             "instance_id": {"value": tracker_id},
-            "properties": data.get("properties", [[]])[0],
+            "properties": data.get("properties", []),
             "slot_names": ["0"],
-            "score": float(confidence),
+            "score": confidence,
         }
 
-        if mask is not None:
-            annotation["polygon"] = _detection_mask_to_darwin_polygon(
-                mask, 
-                min_image_area_percentage, 
-                max_image_area_percentage, 
-                approximation_percentage
+        if ORIENTED_BOX_COORDINATES in data:
+            annotation["ellipse"] = _detection_xyxyxyxy_to_darwin_ellipse(
+                data[ORIENTED_BOX_COORDINATES]
             )
-
+        else:
+            annotation["bounding_box"] = _detection_xyxy_to_darwin_bbox(xyxy)
+            if mask is not None:
+                annotation["polygon"] = _detection_mask_to_darwin_polygon(
+                    mask,
+                    min_image_area_percentage,
+                    max_image_area_percentage,
+                    approximation_percentage,
+                )
         annotations.append(annotation)
 
     for t in tags:
@@ -278,11 +289,10 @@ def _detections_to_darwin_annotations(
     return annotations
 
 
-
-def _detection_xyxy_to_darwin_bbox(xyxy : np.ndarray) -> dict[str, float]:
+def _detection_xyxy_to_darwin_bbox(xyxy: np.ndarray) -> dict[str, float]:
     """
     xyxy is numpy array of shape (4,)
-    
+
     Returns bounding box in format for darwin json
 
     Users should use detections_to_darwin_dict instead
@@ -303,12 +313,13 @@ def _detection_xyxy_to_darwin_bbox(xyxy : np.ndarray) -> dict[str, float]:
     bbox = {"h": x1y1wh[3], "w": x1y1wh[2], "x": x1y1wh[0], "y": x1y1wh[1]}
     return bbox
 
+
 def _detection_mask_to_darwin_polygon(
-        mask : np.ndarray, 
-        min_image_area_percentage : float,
-        max_image_area_percentage : float,
-        approximation_percentage  : float
-    ) -> dict[str, list[dict[str, float]]]:
+    mask: np.ndarray,
+    min_image_area_percentage: float,
+    max_image_area_percentage: float,
+    approximation_percentage: float,
+) -> dict[str, list[dict[str, float]]]:
     """
     Returns polygon in format for darwin json
 
@@ -328,3 +339,41 @@ def _detection_mask_to_darwin_polygon(
 
     polygon = {"paths": paths}
     return polygon
+
+
+def _detection_xyxyxyxy_to_darwin_ellipse(xyxyxyxy):
+    """
+    Estimate Darwin ellipse parameters from 4 points (xyxyxyxy).
+    Assumes the points are ordered as in darwin_ellipse_to_xyxyxyxy.
+
+    Args:
+        xyxyxyxy (list or np.ndarray): List of 4 [x, y] points.
+
+    Returns:
+        dict: {
+            "center": {"x": float, "y": float},
+            "radius": {"x": float, "y": float},
+            "angle": float (radians)
+        }
+    """
+    pts = np.asarray(xyxyxyxy, dtype=np.float32)
+    if pts.shape != (4, 2):
+        raise ValueError("xyxyxyxy must be a list of 4 [x, y] points.")
+
+    # Use OpenCV to fit a rotated rectangle, then extract ellipse parameters
+    (cx, cy), (w, h), angle_deg = cv2.minAreaRect(pts)
+
+    # OpenCV angle is in degrees, and refers to the rectangle's orientation
+    # Convert to radians
+    angle_rad = np.deg2rad(angle_deg)
+
+    # The rectangle's width and height correspond to the ellipse's axes
+    rx = w / 2.0
+    ry = h / 2.0
+
+    # Return in Darwin format
+    return {
+        "center": {"x": float(cx), "y": float(cy)},
+        "radius": {"x": float(rx), "y": float(ry)},
+        "angle": float(angle_rad),
+    }
