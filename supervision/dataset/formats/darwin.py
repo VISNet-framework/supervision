@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Dict, List, Tuple
 import cv2
 import numpy as np
 from natsort import natsorted
-import cv2
 
 from supervision.config import (
     ORIENTED_BOX_COORDINATES,
@@ -278,7 +277,6 @@ def _detections_to_darwin_annotations(
                     approximation_percentage,
                 )
         annotations.append(annotation)
-
 
     for t in tags:
         tag_id = str(uuid.uuid4())
