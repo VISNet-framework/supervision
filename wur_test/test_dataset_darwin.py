@@ -2,9 +2,9 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from test_utils import mock_detections
 
 from supervision.dataset.formats import darwin
-from test.test_utils import mock_detections
 
 
 @pytest.mark.parametrize(
