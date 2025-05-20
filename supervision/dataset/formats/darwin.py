@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Dict, List, Tuple
 import cv2
 import numpy as np
 from natsort import natsorted
+import cv2
 
 from supervision.config import (
     ORIENTED_BOX_COORDINATES,
@@ -70,6 +71,9 @@ def load_darwin_annotations(
         classes (list[str]): List of class names.
         force_masks (bool): Whether to force loading masks. Default is False.
     """
+    ## TODO implement loading of metadata using json:
+    # current idea at image location replace.png/.jpg with .json
+
     images_directory_path = Path(images_directory_path)
     annotation_directory_path = Path(annotation_directory_path)
     images_paths, annotation_paths = find_valid_images_and_annotations(
@@ -274,6 +278,7 @@ def _detections_to_darwin_annotations(
                     approximation_percentage,
                 )
         annotations.append(annotation)
+
 
     for t in tags:
         tag_id = str(uuid.uuid4())

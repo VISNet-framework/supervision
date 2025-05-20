@@ -7,6 +7,7 @@ from typing import Optional
 import cv2
 import numpy as np
 import numpy.typing as npt
+import math
 
 from supervision.config import (
     ORIENTED_BOX_COORDINATES,
@@ -157,6 +158,7 @@ def darwin_bounding_box_to_xyxy(darwin_bounding_box: dict) -> list[float]:
         darwin_bounding_box["y"] + darwin_bounding_box["h"],
     ]
     return xyxy
+
 
 
 def darwin_annotations_to_detections_dict(
