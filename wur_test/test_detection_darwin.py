@@ -1,9 +1,11 @@
 import json
+import os
 
 import numpy as np
 import pytest
 
 from supervision import Detections
+from supervision.config import ORIENTED_BOX_COORDINATES
 from supervision.detection.tools import darwin
 
 MIN_DARWIN_DICT = {
@@ -168,3 +170,319 @@ def test_from_darwin_empty(
     )
     assert detections.is_empty()
     assert detections.metadata == metadata
+
+
+def test_process_ellipse_as_mask_basic():
+    annotation = {
+        "ellipse": {
+            "center": {"x": 10, "y": 10},
+            "radius": {"x": 5, "y": 3},
+            "angle": 0.0,
+        },
+        "name": "cat",
+    }
+    classes = ["cat", "dog"]
+    det = darwin.process_ellipse_as_mask(
+        annotation, classes, width=20, height=20, with_track_ids=False
+    )
+    assert det.class_id == 0
+    assert det.mask.shape == (20, 20)
+    assert det.xyxy == [5, 7, 15, 13]
+
+
+def test_process_ellipse_as_obb_basic():
+    annotation = {
+        "ellipse": {
+            "center": {"x": 10, "y": 10},
+            "radius": {"x": 5, "y": 3},
+            "angle": 0.0,
+        },
+        "name": "dog",
+    }
+    classes = ["cat", "dog"]
+    det = darwin.process_ellipse_as_obb(annotation, classes, with_track_ids=False)
+    assert det.class_id == 1
+    assert ORIENTED_BOX_COORDINATES in det.data
+    assert len(det.data[ORIENTED_BOX_COORDINATES]) == 4
+
+
+def test_process_bounding_box_with_and_without_mask():
+    annotation = {
+        "bounding_box": {"x": 1, "y": 2, "w": 3, "h": 4},
+        "name": "cat",
+    }
+    classes = ["cat", "dog"]
+    det = darwin.process_bounding_box(
+        annotation, classes, width=10, height=10, with_masks=False, with_track_ids=False
+    )
+    assert det.class_id == 0
+    assert det.xyxy == [1, 2, 4, 6]
+    assert det.mask is None
+
+    # With mask and polygon
+    annotation["polygon"] = {
+        "paths": [
+            [{"x": 1, "y": 2}, {"x": 4, "y": 2}, {"x": 4, "y": 6}, {"x": 1, "y": 6}]
+        ]
+    }
+    det2 = darwin.process_bounding_box(
+        annotation, classes, width=10, height=10, with_masks=True, with_track_ids=False
+    )
+    assert det2.mask.shape == (10, 10)
+    assert np.max(det2.mask) == 1
+
+
+def test_merge_detections_to_dict_basic():
+    from supervision.detection.tools.darwin import SingleDetection
+
+    det1 = SingleDetection(
+        xyxy=[1, 2, 3, 4], class_id=0, mask=None, tracker_id=None, data={}
+    )
+    det2 = SingleDetection(
+        xyxy=[5, 6, 7, 8], class_id=1, mask=None, tracker_id=None, data={}
+    )
+    result = darwin.merge_detections_to_dict([det1, det2])
+    np.testing.assert_array_equal(
+        result["xyxy"], np.array([[1, 2, 3, 4], [5, 6, 7, 8]], dtype=np.float32)
+    )
+    np.testing.assert_array_equal(result["class_id"], np.array([0, 1]))
+
+
+def test_merge_detections_to_dict_with_mask_and_tracker():
+    from supervision.detection.tools.darwin import SingleDetection
+
+    mask = np.zeros((10, 10), dtype=np.uint8)
+    det = SingleDetection(
+        xyxy=[1, 2, 3, 4], class_id=0, mask=mask, tracker_id=42, data={}
+    )
+    result = darwin.merge_detections_to_dict([det])
+    assert "mask" in result
+    assert "tracker_id" in result
+    assert result["mask"].shape[1:] == (10, 10)
+    assert result["tracker_id"][0] == 42
+
+
+@pytest.mark.parametrize(
+    "annotation,expected",
+    [
+        ({"ellipse": {}}, darwin.AnnotationType.ELLIPSE),
+        ({"bounding_box": {}}, darwin.AnnotationType.BOUNDING_BOX),
+        ({}, darwin.AnnotationType.UNKNOWN),
+    ],
+)
+def test_get_annotation_type(annotation, expected):
+    assert darwin.get_annotation_type(annotation) == expected
+
+
+def test_darwin_annotations_to_detections_dict_bbox(tmpdir):
+    # Create a minimal Darwin JSON with one bounding box annotation
+    darwin_dict = {
+        "version": "2.0",
+        "schema_ref": "dummy",
+        "item": {
+            "name": "img.jpg",
+            "path": "/",
+            "slots": [{"type": "image", "slot_name": "0", "width": 100, "height": 100}],
+        },
+        "annotations": [
+            {"name": "cat", "bounding_box": {"x": 10, "y": 20, "w": 30, "h": 40}}
+        ],
+    }
+    filename = os.path.join(tmpdir, "img.json")
+    with open(filename, "w") as f:
+        json.dump(darwin_dict, f)
+    result = darwin.darwin_annotations_to_detections_dict(
+        json_name=f.name,
+        with_masks=False,
+        classes=["cat", "dog"],
+        with_ellipse_as=None,
+        with_track_ids=False,
+        skip_unknown_classes=True,
+        metadata={"source": "test"},
+    )
+    # Check output
+    np.testing.assert_array_equal(
+        result["xyxy"], np.array([[10, 20, 40, 60]], dtype=np.float32)
+    )
+    np.testing.assert_array_equal(result["class_id"], np.array([0]))
+    assert result["metadata"] == {"source": "test"}
+
+
+def test_darwin_annotations_to_detections_dict_ellipse_mask(tmpdir):
+    # Darwin JSON with one ellipse annotation
+    darwin_dict = {
+        "version": "2.0",
+        "schema_ref": "dummy",
+        "item": {
+            "name": "img.jpg",
+            "path": "/",
+            "slots": [{"type": "image", "slot_name": "0", "width": 20, "height": 20}],
+        },
+        "annotations": [
+            {
+                "name": "cat",
+                "ellipse": {
+                    "center": {"x": 10, "y": 10},
+                    "radius": {"x": 5, "y": 3},
+                    "angle": 0.0,
+                },
+            }
+        ],
+    }
+    filename = os.path.join(tmpdir, "img.json")
+    with open(filename, "w") as f:
+        json.dump(darwin_dict, f)
+    result = darwin.darwin_annotations_to_detections_dict(
+        json_name=filename,
+        with_masks=True,
+        classes=["cat"],
+        with_ellipse_as="mask",
+        with_track_ids=False,
+        skip_unknown_classes=True,
+    )
+    assert result["xyxy"].shape == (1, 4)
+    assert "mask" in result
+    assert result["mask"].shape[1:] == (20, 20)
+    assert np.max(result["mask"]) == 1
+
+
+def test_darwin_annotations_to_detections_dict_ellipse_obb(tmpdir):
+    # Darwin JSON with one ellipse annotation
+    darwin_dict = {
+        "version": "2.0",
+        "schema_ref": "dummy",
+        "item": {
+            "name": "img.jpg",
+            "path": "/",
+            "slots": [{"type": "image", "slot_name": "0", "width": 20, "height": 20}],
+        },
+        "annotations": [
+            {
+                "name": "cat",
+                "ellipse": {
+                    "center": {"x": 10, "y": 10},
+                    "radius": {"x": 5, "y": 3},
+                    "angle": 0.0,
+                },
+            }
+        ],
+    }
+    filename = os.path.join(tmpdir, "img.json")
+    with open(filename, "w") as f:
+        json.dump(darwin_dict, f)
+    result = darwin.darwin_annotations_to_detections_dict(
+        json_name=filename,
+        with_masks=False,
+        classes=["cat"],
+        with_ellipse_as="oriented_bounding_box",
+        with_track_ids=False,
+        skip_unknown_classes=True,
+    )
+    assert result["xyxy"].shape == (1, 4)
+    assert "data" in result
+    assert ORIENTED_BOX_COORDINATES in result["data"]
+    assert result["data"][ORIENTED_BOX_COORDINATES].shape == (1, 4, 2)
+
+
+def test_Detections_from_darwin_bbox(tmpdir):
+    darwin_dict = {
+        "version": "2.0",
+        "schema_ref": "dummy",
+        "item": {
+            "name": "img.jpg",
+            "path": "/",
+            "slots": [{"type": "image", "slot_name": "0", "width": 100, "height": 100}],
+        },
+        "annotations": [
+            {"name": "cat", "bounding_box": {"x": 10, "y": 20, "w": 30, "h": 40}}
+        ],
+    }
+    filename = os.path.join(tmpdir, "img.json")
+    with open(filename, "w") as f:
+        json.dump(darwin_dict, f)
+    detections = Detections.from_darwin(
+        json_name=filename,
+        with_masks=False,
+        classes=["cat", "dog"],
+        with_ellipse_as=None,
+        with_track_ids=False,
+        skip_unknown_classes=True,
+        metadata={"source": "test"},
+    )
+    np.testing.assert_array_equal(
+        detections.xyxy, np.array([[10, 20, 40, 60]], dtype=np.float32)
+    )
+    np.testing.assert_array_equal(detections.class_id, np.array([0]))
+    assert detections.metadata == {"source": "test"}
+
+
+def test_Detections_from_darwin_ellipse_mask(tmpdir):
+    darwin_dict = {
+        "version": "2.0",
+        "schema_ref": "dummy",
+        "item": {
+            "name": "img.jpg",
+            "path": "/",
+            "slots": [{"type": "image", "slot_name": "0", "width": 20, "height": 20}],
+        },
+        "annotations": [
+            {
+                "name": "cat",
+                "ellipse": {
+                    "center": {"x": 10, "y": 10},
+                    "radius": {"x": 5, "y": 3},
+                    "angle": 0.0,
+                },
+            }
+        ],
+    }
+    filename = os.path.join(tmpdir, "img.json")
+    with open(filename, "w") as f:
+        json.dump(darwin_dict, f)
+    detections = Detections.from_darwin(
+        json_name=filename,
+        with_masks=True,
+        classes=["cat"],
+        with_ellipse_as="mask",
+        with_track_ids=False,
+        skip_unknown_classes=True,
+    )
+    assert detections.xyxy.shape == (1, 4)
+    assert detections.mask.shape[1:] == (20, 20)
+    assert np.max(detections.mask) == 1
+
+
+def test_Detections_from_darwin_ellipse_obb(tmpdir):
+    darwin_dict = {
+        "version": "2.0",
+        "schema_ref": "dummy",
+        "item": {
+            "name": "img.jpg",
+            "path": "/",
+            "slots": [{"type": "image", "slot_name": "0", "width": 20, "height": 20}],
+        },
+        "annotations": [
+            {
+                "name": "cat",
+                "ellipse": {
+                    "center": {"x": 10, "y": 10},
+                    "radius": {"x": 5, "y": 3},
+                    "angle": 0.0,
+                },
+            }
+        ],
+    }
+    filename = os.path.join(tmpdir, "img.json")
+    with open(filename, "w") as f:
+        json.dump(darwin_dict, f)
+    detections = Detections.from_darwin(
+        json_name=filename,
+        with_masks=False,
+        classes=["cat"],
+        with_ellipse_as="oriented_bounding_box",
+        with_track_ids=False,
+        skip_unknown_classes=True,
+    )
+    assert detections.xyxy.shape == (1, 4)
+    assert ORIENTED_BOX_COORDINATES in detections.data
+    assert detections.data[ORIENTED_BOX_COORDINATES].shape == (1, 4, 2)

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import math
-from collections import defaultdict
+from dataclasses import dataclass, field
+from enum import Enum, auto
+from functools import partial
 from typing import Optional
 
 import cv2
@@ -14,6 +16,192 @@ from supervision.config import (
 from supervision.utils.file import (
     read_json_file,
 )
+
+
+@dataclass
+class AnnotationType(Enum):
+    """
+    Enum for annotation types.
+    """
+
+    ELLIPSE = auto()
+    # bounding box may also include polygons
+    BOUNDING_BOX = auto()
+    UNKNOWN = auto()
+
+
+def get_annotation_type(annotation: dict) -> AnnotationType:
+    """
+    Get the type of annotation from the given dictionary.
+
+    Args:
+        annotation (dict): Annotation dictionary.
+
+    Returns:
+        AnnotationType: The type of annotation.
+    """
+    if "ellipse" in annotation:
+        return AnnotationType.ELLIPSE
+    elif "bounding_box" in annotation:
+        return AnnotationType.BOUNDING_BOX
+    else:
+        return AnnotationType.UNKNOWN
+
+
+@dataclass
+class SingleDetection:
+    """
+    A single detection with its properties.
+    Helper class to process darwin annotations and convert them to
+    a single supervision Detections object.
+    """
+
+    xyxy: list[float]
+    class_id: int
+    mask: Optional[npt.NDArray[np.uint8]] = None
+    tracker_id: Optional[int] = None
+    data: Optional[dict] = field(default_factory=dict)
+
+
+def merge_detections_to_dict(dets: list[SingleDetection]) -> dict:
+    """
+    Merge a list of SingleDetection objects into a dictionary.
+    This is useful for converting darwin annotations to a single
+    supervision Detections object.
+    """
+    xyxy = np.array([d.xyxy for d in dets], dtype=np.float32)
+    class_id = np.array([d.class_id for d in dets], dtype=int)
+
+    # All arrays must be equal length, so if a key in data does
+    # not exist in a detection, we set it to None
+    # TODO check if this leads to issues when trying to use
+    # oriented bounding boxes in a dataset with other annotations
+    # as well. Easy fix would be to only specify obb classes, but
+    # this is now left to the wisdom of the user
+    data_keys = {k for d in dets for k in d.data.keys()}
+    data = {k: [] for k in data_keys}
+    for d in dets:
+        for key in data_keys:
+            data[key].append(d.data.get(key, None))
+    data = {k: np.array(v) for k, v in data.items()}
+
+    result = {
+        "xyxy": xyxy,
+        "class_id": np.array(class_id),
+        "data": data,
+    }
+
+    tracker_ids = np.array(
+        [d.tracker_id for d in dets if d.tracker_id is not None], dtype=int
+    )
+    if len(tracker_ids) > 0:
+        result["tracker_id"] = tracker_ids
+
+    masks = np.array([d.mask for d in dets if d.mask is not None], dtype=np.uint8)
+    if len(masks) > 0:
+        result["mask"] = masks
+    return result
+
+
+def process_ellipse_as_mask(
+    annotation: dict, classes: list[str], width: int, height: int, with_track_ids: bool
+) -> SingleDetection:
+    """
+    Process a single ellipse annotation and convert it to a SingleDetection object.
+    """
+    xyxy = darwin_ellipse_to_xyxy(annotation["ellipse"])
+    class_id = classes.index(annotation["name"])
+    mask = darwin_ellipse_to_mask(
+        annotation["ellipse"],
+        height=height,
+        width=width,
+    )
+    data = {}
+    if "properties" in annotation:
+        # NOTE this will probably work, but might not be ideal
+        # darwin stores so-called properties as list of dicts
+        # per dict a key and a value
+        # might be simpler to directly add the key and value to data
+        # otherwise, properties will be a random bag of attributes within data
+        # which is already the same task as data itself
+        data["properties"] = annotation["properties"]
+    if with_track_ids:
+        tracker_id = annotation.get("instance_id", {}).get("value", None)
+    else:
+        tracker_id = None
+    return SingleDetection(
+        xyxy=xyxy, class_id=class_id, mask=mask, tracker_id=tracker_id, data=data
+    )
+
+
+def process_ellipse_as_obb(
+    annotation: dict, classes: list[str], with_track_ids: bool
+) -> SingleDetection:
+    """
+    Process a single ellipse annotation and convert it to a SingleDetection object.
+    """
+    xyxyxyxy = darwin_ellipse_to_xyxyxyxy(annotation["ellipse"])
+    xyxy = xyxyxyxy_to_xyxy(xyxyxyxy)
+    class_id = classes.index(annotation["name"])
+    data = {ORIENTED_BOX_COORDINATES: xyxyxyxy}
+    if "properties" in annotation:
+        # NOTE this will probably work, but might not be ideal
+        # darwin stores so-called properties as list of dicts
+        # per dict a key and a value
+        # might be simpler to directly add the key and value to data
+        # otherwise, properties will be a random bag of attributes within data
+        # which is already the same task as data itself
+        data["properties"] = annotation["properties"]
+    if with_track_ids:
+        tracker_id = annotation.get("instance_id", {}).get("value", None)
+    else:
+        tracker_id = None
+    return SingleDetection(
+        xyxy=xyxy, class_id=class_id, data=data, tracker_id=tracker_id
+    )
+
+
+def process_bounding_box(
+    annotation: dict,
+    classes: list[str],
+    width: int,
+    height: int,
+    with_masks: bool,
+    with_track_ids: bool,
+) -> SingleDetection:
+    """
+    Process a single bounding box annotation and convert it to a SingleDetection object.
+    """
+    xyxy = darwin_bounding_box_to_xyxy(annotation["bounding_box"])
+    class_id = classes.index(annotation["name"])
+    data = {}
+    if "properties" in annotation:
+        # NOTE this will probably work, but might not be ideal
+        # darwin stores so-called properties as list of dicts
+        # per dict a key and a value
+        # might be simpler to directly add the key and value to data
+        # otherwise, properties will be a random bag of attributes within data
+        # which is already the same task as data itself
+        data["properties"] = annotation["properties"]
+    if with_track_ids:
+        tracker_id = annotation.get("instance_id", {}).get("value", None)
+    else:
+        tracker_id = None
+
+    if with_masks:
+        if "polygon" in annotation:
+            mask = darwin_polygon_to_mask(
+                annotation["polygon"],
+                height=height,
+                width=width,
+            )
+        else:
+            mask = empty_mask(height, width)
+    else:
+        mask = None
+    return SingleDetection(
+        xyxy=xyxy, class_id=class_id, mask=mask, tracker_id=tracker_id, data=data
+    )
 
 
 def xyxyxyxy_to_xyxy(xyxyxyxy: list[list[float]]) -> list[float]:
@@ -205,16 +393,6 @@ def darwin_annotations_to_detections_dict(
     height = json_data["item"]["slots"][0]["height"]
     width = json_data["item"]["slots"][0]["width"]
 
-    # required
-    xyxy, class_ids = [], []
-    # optional depending on arguments
-    if with_masks:
-        masks = []
-    if with_track_ids:
-        tracker_id = []
-    # who knows, contains properties and optionally oriented bounding boxes
-    detection_data = defaultdict(list)
-
     # update classes with darwin classes, based on skip_unknown_classes
     if not skip_unknown_classes:
         for annotation in json_data["annotations"]:
@@ -227,93 +405,46 @@ def darwin_annotations_to_detections_dict(
         if annotation.get("name") in classes
     ]
 
-    if with_ellipse_as is not None:
-        ellipse_annotations = [ann for ann in annotations if "ellipse" in ann]
-        for ellipse_annotation in ellipse_annotations:
-            xyxy.append(darwin_ellipse_to_xyxy(ellipse_annotation["ellipse"]))
-            class_ids.append(classes.index(ellipse_annotation["name"]))
-            if with_track_ids:
-                tracker_id.append(
-                    ellipse_annotation.get("instance_id", {}).get("value", None)
-                )
-            if with_ellipse_as == "mask":
-                masks.append(
-                    darwin_ellipse_to_mask(
-                        ellipse_annotation["ellipse"],
-                        height=height,
-                        width=width,
-                    )
-                )
-            elif with_ellipse_as == "oriented_bounding_box":
-                xyxyxyxy = darwin_ellipse_to_xyxyxyxy(ellipse_annotation["ellipse"])
-                detection_data[ORIENTED_BOX_COORDINATES].append(xyxyxyxy)
-            else:
-                raise ValueError(f"Unknown with_ellipse_as value: {with_ellipse_as}")
-
-    normal_annotations = [ann for ann in annotations if "bounding_box" in ann]
-    for annotation in normal_annotations:
-        xyxy.append(darwin_bounding_box_to_xyxy(annotation["bounding_box"]))
-        class_ids.append(classes.index(annotation["name"]))
-        detection_data["properties"].append(annotation.get("properties", []))
-        if ORIENTED_BOX_COORDINATES in detection_data:
-            raise ValueError(
-                'Oriented bounding boxes and normal bounding boxes cannot " \
-                be used together. If you are trying to use oriented bounding \
-                boxes, prevent loading other annotation types by setting classes \
-                to your ellipse classes only.'
-            )
-        if with_masks:
-            if "polygon" in annotation:
-                masks.append(
-                    darwin_polygon_to_mask(
-                        annotation["polygon"],
-                        height=height,
-                        width=width,
-                    )
-                )
-            else:
-                masks.append(empty_mask(height, width))
-        if with_track_ids:
-            tracker_id.append(annotation.get("instance_id", {}).get("value", None))
-
-    # to deal with empty darwin files
-    if len(xyxy) == 0:
-        xyxy = np.empty((0, 4), dtype=np.float32)
-        class_ids = np.array([], dtype=int)
-        if with_masks:
-            masks = np.empty((0, height, width), dtype=np.uint8)
-        if with_track_ids:
-            tracker_id = np.empty((0, 1), dtype=np.float32)
-    else:
-        xyxy = np.asarray(xyxy, dtype=np.float32)
-        class_ids = np.asarray(class_ids, dtype=int)
-        if with_masks:
-            masks = np.array(masks)
-        if with_track_ids:
-            tracker_id = np.asarray(tracker_id)
-        if ORIENTED_BOX_COORDINATES in detection_data:
-            detection_data[ORIENTED_BOX_COORDINATES] = np.array(
-                detection_data[ORIENTED_BOX_COORDINATES], dtype=np.float32
-            )
-
-    result_dict = {}
-    result_dict["xyxy"] = xyxy
-    len_xyxy = len(xyxy)
-    result_dict["class_id"] = class_ids
-    assert len_xyxy == len(class_ids), "xyxy and class_id must have the same length."
-    if with_masks:
-        result_dict["mask"] = masks
-        assert len_xyxy == len(masks), "xyxy and mask must have the same length."
-    if with_track_ids:
-        result_dict["tracker_id"] = tracker_id
-        assert len_xyxy == len(tracker_id), (
-            "xyxy and tracker_id must have the same length."
+    annotation_parser = {
+        AnnotationType.BOUNDING_BOX.value: partial(
+            process_bounding_box,
+            width=width,
+            height=height,
+            classes=classes,
+            with_masks=with_masks,
+            with_track_ids=with_track_ids,
         )
-    if len(detection_data) > 0:
-        result_dict["data"] = dict(detection_data)
-        for key, values in result_dict["data"].items():
-            assert len_xyxy == len(values), f"xyxy and {key} must have the same length."
+    }
 
+    if with_ellipse_as == "mask":
+        annotation_parser[AnnotationType.ELLIPSE.value] = partial(
+            process_ellipse_as_mask,
+            width=width,
+            height=height,
+            classes=classes,
+            with_track_ids=with_track_ids,
+        )
+    elif with_ellipse_as == "oriented_bounding_box":
+        annotation_parser[AnnotationType.ELLIPSE.value] = partial(
+            process_ellipse_as_obb, classes=classes, with_track_ids=with_track_ids
+        )
+    elif with_ellipse_as is None:
+        pass
+    else:
+        raise ValueError(
+            f"with_ellipse_as must be one of [None, 'oriented_bounding_box', 'mask'], \
+                got {with_ellipse_as}"
+        )
+
+    single_detections = []
+    for annotation in annotations:
+        annotation_type = get_annotation_type(annotation)
+        if annotation_type.value in annotation_parser:
+            single_detections.append(
+                annotation_parser[annotation_type.value](annotation)
+            )
+
+    result_dict = merge_detections_to_dict(single_detections)
     if len(metadata) > 0:
         result_dict["metadata"] = metadata
     return result_dict
