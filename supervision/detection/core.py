@@ -206,19 +206,28 @@ class Detections:
         json_name: str,
         with_masks: bool,
         classes: list[str],
-        skip_unknown_classes: bool = True,
+        with_ellipse_as: Optional[str] = None,
         with_track_ids: bool = False,
+        skip_unknown_classes: bool = True,
         metadata: dict = {},
     ) -> Detections:
-        data = darwin_annotations_to_detections_dict(
+        result_dict = darwin_annotations_to_detections_dict(
             json_name=json_name,
             with_masks=with_masks,
             classes=classes,
-            skip_unknown_classes=skip_unknown_classes,
+            with_ellipse_as=with_ellipse_as,
             with_track_ids=with_track_ids,
+            skip_unknown_classes=skip_unknown_classes,
             metadata=metadata,
         )
-        return cls(**data)
+        if len(result_dict["xyxy"]) == 0:
+            obj = cls.empty()
+            if "data" in result_dict:
+                obj.data = result_dict["data"]
+            if "metadata" in result_dict:
+                obj.metadata = result_dict["metadata"]
+            return obj
+        return cls(**result_dict)
 
     @classmethod
     def from_yolov5(cls, yolov5_results) -> Detections:

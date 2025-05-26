@@ -343,7 +343,6 @@ class DetectionDataset(BaseDataset):
         classes: list,
         force_masks: bool = False,
         force_track_ids: bool = False,
-
     ) -> DetectionDataset:
         classes, images, annotations = load_darwin_annotations(
             images_directory_path=images_directory_path,
