@@ -45,7 +45,7 @@ def check_mask_similarity(mask1, mask2, threshold=0.97):
     similarity = intersection / union if union != 0 else 0
     assert similarity >= threshold, f"Mask similarity {similarity:.3f}"
 
-def test_darwin_image_circle(json_name="circle.json", img_dict={}):
+def check_similarity_darwin_and_mask(json_name="circle.json", img_dict={}):
 
     current_dir = Path(__file__).resolve().parent / "data"
     json_path = current_dir / json_name
@@ -73,14 +73,10 @@ def test_darwin_image_circle(json_name="circle.json", img_dict={}):
     check_mask_similarity(real_mask, converted_mask>0, threshold=1)
 
 
-
-if __name__=="__main__":
+def test_darwin_image_circles():
     img_dict = create_image()
-    # test_darwin_image_circle(json_name="circle.json", img_dict=img_dict)
-    # test_darwin_image_circle(json_name="circle_with_hole.json", img_dict=img_dict)
-    # test_darwin_image_circle(json_name="circle_with_holes.json", img_dict=img_dict)
-    # test_darwin_image_circle(json_name="circle_with_holes_complex_mask.json", img_dict=img_dict)
-    test_darwin_image_circle(json_name="circle_holes_complex_double.json", img_dict=img_dict)
-
-
-
+    check_similarity_darwin_and_mask(json_name="circle.json", img_dict=img_dict)
+    check_similarity_darwin_and_mask(json_name="circle_with_hole.json", img_dict=img_dict)
+    check_similarity_darwin_and_mask(json_name="circle_with_holes.json", img_dict=img_dict)
+    check_similarity_darwin_and_mask(json_name="circle_with_holes_complex_mask.json", img_dict=img_dict)
+    check_similarity_darwin_and_mask(json_name="circle_holes_complex_double.json", img_dict=img_dict)
