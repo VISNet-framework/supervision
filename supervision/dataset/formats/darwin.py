@@ -1,7 +1,7 @@
 import os
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -59,6 +59,7 @@ def load_darwin_annotations(
     classes: list[str],
     force_masks: bool = False,
     force_track_ids: bool = False,
+    with_ellipse_as: Optional[bool] = None,
 ) -> Tuple[List[str], List[str], Dict[str, Detections]]:
     """
     Load Darwin annotations from a directory.
@@ -69,6 +70,10 @@ def load_darwin_annotations(
             Path to the directory containing darwin annotations.
         classes (list[str]): List of class names.
         force_masks (bool): Whether to force loading masks. Default is False.
+        with_ellipse_as (str): How to convert ellipse. Options are
+            "oriented_bounding_box", "mask", or None to ignore.
+            Default is None.
+            "oriented_bounding_box" requires all annotations to be ellipses.
     """
     ## TODO implement loading of metadata using json:
     # current idea at image location replace.png/.jpg with .json
@@ -89,6 +94,7 @@ def load_darwin_annotations(
             classes=classes,
             skip_unknown_classes=True,
             with_track_ids=force_track_ids,
+            with_ellipse_as=with_ellipse_as,
         )
         images.append(str(img_name))
         annotations[str(img_name)] = annotation

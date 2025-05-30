@@ -346,6 +346,7 @@ class DetectionDataset(BaseDataset):
         classes: list,
         force_masks: bool = False,
         force_track_ids: bool = False,
+        with_ellipse_as: Optional[str] = None,
     ) -> DetectionDataset:
         classes, images, annotations = load_darwin_annotations(
             images_directory_path=images_directory_path,
@@ -353,6 +354,7 @@ class DetectionDataset(BaseDataset):
             classes=classes,
             force_masks=force_masks,
             force_track_ids=force_track_ids,
+            with_ellipse_as=with_ellipse_as,
         )
         return DetectionDataset(classes=classes, images=images, annotations=annotations)
 
