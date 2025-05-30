@@ -19,6 +19,9 @@ from supervision.dataset.formats.darwin import (
     load_darwin_annotations,
     save_darwin_annotations,
 )
+from supervision.dataset.formats.dotav2 import (
+    load_dotav2_annotations,
+)
 from supervision.dataset.formats.pascal_voc import (
     detections_to_pascal_voc,
     load_pascal_voc_annotations,
@@ -384,6 +387,28 @@ class DetectionDataset(BaseDataset):
                 darwin_dataset_name=darwin_dataset_name,
             )
         return
+
+    @classmethod
+    def from_dotav2(
+        self,
+        image_directory_path: str,
+        annotations_directory_path: str,
+        classes: list[str],
+    ) -> DetectionDataset:
+        """
+        Creates a Dataset instance from DOTAv2 formatted data.
+
+        Args:
+            annotations_directory_path (str): The path to the directory
+        """
+        classes, image_paths, annotations = load_dotav2_annotations(
+            image_directory_path=image_directory_path,
+            annotations_directory_path=annotations_directory_path,
+            classes=classes,
+        )
+        return DetectionDataset(
+            classes=classes, images=image_paths, annotations=annotations
+        )
 
     def as_pascal_voc(
         self,
