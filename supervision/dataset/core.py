@@ -21,6 +21,7 @@ from supervision.dataset.formats.darwin import (
 )
 from supervision.dataset.formats.dotav2 import (
     load_dotav2_annotations,
+    save_dotav2_annotations,
 )
 from supervision.dataset.formats.pascal_voc import (
     detections_to_pascal_voc,
@@ -411,6 +412,35 @@ class DetectionDataset(BaseDataset):
         return DetectionDataset(
             classes=classes, images=image_paths, annotations=annotations
         )
+
+    def as_dotav2(
+        self,
+        images_directory_path: Optional[str] = None,
+        annotations_directory_path: Optional[str] = None,
+    ) -> None:
+        """
+        Exports the dataset to DOTAv2 format. This method saves the images
+        and their corresponding annotations in DOTAv2 format.
+
+        Args:
+            images_directory_path (Optional[str]): The path to the directory
+                where the images should be saved.
+                If not provided, images will not be saved.
+            annotations_directory_path (Optional[str]): The path to the directory
+                where the annotations in DOTAv2 format should be saved.
+                If not provided, annotations will not be saved.
+        """
+        if images_directory_path:
+            save_dataset_images(
+                dataset=self,
+                images_directory_path=images_directory_path,
+            )
+        if annotations_directory_path:
+            save_dotav2_annotations(
+                dataset=self,
+                annotations_directory_path=Path(annotations_directory_path),
+            )
+        return
 
     def as_pascal_voc(
         self,

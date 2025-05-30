@@ -48,7 +48,7 @@ def detections_to_dota_annotations(
     return lines
 
 
-def save_dota_annotations(
+def save_dotav2_annotations(
     dataset: "DetectionDataset",
     annotations_directory_path: Path,
 ) -> None:
