@@ -66,7 +66,8 @@ dev = [
     "ipywidgets>=8.1.1",
     "jupytext>=1.16.1",
     "nbconvert>=7.14.2",
-    "docutils!=0.21"
+    "docutils!=0.21",
+    "pre-commit>=3.5.0"
 ]
 docs = [
     "mkdocs-material[imaging]>=9.5.5",
@@ -232,8 +233,3 @@ supervision = ["py.typed"]
 [build-system]
 requires = ["setuptools >= 61.0"]
 build-backend = "setuptools.build_meta"
-
-[dependency-groups]
-dev = [
-    "pre-commit>=3.5.0",
-]
