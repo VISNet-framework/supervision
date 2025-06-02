@@ -127,8 +127,6 @@ def detections_to_coco_annotations(
         segmentation = []
         iscrowd = 0
         if mask is not None:
-            if mask.sum()==0:
-                continue
             iscrowd = contains_holes(mask=mask) or contains_multiple_segments(mask=mask)
 
             if iscrowd:
@@ -258,12 +256,16 @@ def save_coco_annotations(
         "annotations": coco_annotations,
     }
     save_json_file(annotation_dict, file_path=annotation_path)
-if __name__=="__main__":
+
+
+if __name__ == "__main__":
     from pathlib import Path
 
-    # images_directory_path = "/home/agro/w-drive-vision/GARdata/datasets/3710496261_broccoli_detection/images/Paper04/"
-    annotations_path = Path("/home/agro/w-drive-vision/GARdata/datasets/3710496261_broccoli_detection/anns/4-Paper04/val.json")
-    images_directory_path = annotations_path.parent
-    force_masks: bool = False,
-    classes = ["healthy", "damaged", "mature", "cateye", "headrot"]  # (list[str]) target classes
+    base_dir = Path("/mnt/GARdata/datasets/project_name")
+    annotations_path = base_dir / "anns/ann_version/coco/train.json"
+    images_directory_path = base_dir / "images"
+    force_masks: bool = (False,)
+    classes = [
+        "healthy",
+    ]  # (list[str]) target classes
     load_coco_annotations(str(images_directory_path), str(annotations_path), True)

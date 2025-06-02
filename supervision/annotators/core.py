@@ -191,10 +191,15 @@ class OrientedBoxAnnotator(BaseAnnotator):
         assert isinstance(scene, np.ndarray)
         if detections.data is None or ORIENTED_BOX_COORDINATES not in detections.data:
             return scene
-        obb_boxes = np.array(detections.data[ORIENTED_BOX_COORDINATES]).astype(int)
+        # obb_boxes = np.array(detections.data[ORIENTED_BOX_COORDINATES]).astype(int)
 
         for detection_idx in range(len(detections)):
-            obb = obb_boxes[detection_idx]
+            # obb = obb_boxes[detection_idx]
+            obb = detections.data[ORIENTED_BOX_COORDINATES][detection_idx]
+            if obb is None:
+                continue
+            else:
+                obb = np.array(obb).astype(int)
             color = resolve_color(
                 color=self.color,
                 detections=detections,

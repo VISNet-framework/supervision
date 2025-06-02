@@ -15,6 +15,10 @@ from supervision.dataset.formats.coco import (
     load_coco_annotations,
     save_coco_annotations,
 )
+from supervision.dataset.formats.darwin import (
+    load_darwin_annotations,
+    save_darwin_annotations,
+)
 from supervision.dataset.formats.pascal_voc import (
     detections_to_pascal_voc,
     load_pascal_voc_annotations,
@@ -331,6 +335,56 @@ class DetectionDataset(BaseDataset):
             annotations=annotations,
         )
 
+    @classmethod
+    def from_darwin(
+        cls,
+        images_directory_path: str,
+        annotations_path: str,
+        classes: list,
+        force_masks: bool = False,
+        force_track_ids: bool = False,
+    ) -> DetectionDataset:
+        classes, images, annotations = load_darwin_annotations(
+            images_directory_path=images_directory_path,
+            annotation_directory_path=annotations_path,
+            classes=classes,
+            force_masks=force_masks,
+            force_track_ids=force_track_ids,
+        )
+        return DetectionDataset(classes=classes, images=images, annotations=annotations)
+
+    def as_darwin(
+        self,
+        darwin_dataset_name: str,
+        images_directory_path: Optional[str] = None,
+        annotations_directory_path: Optional[str] = None,
+    ) -> None:
+        """
+        Exports the dataset to darwinv7 format. This method saves the images
+        and their corresponding annotations in darwin format.
+
+        Args:
+            images_directory_path (Optional[str]): The path to the directory
+                where the images should be saved.
+                If not provided, images will not be saved.
+            annotations_directory_path (Optional[str]): The path to the directory
+                where the annotations in darwin format should be saved.
+                If not provided, annotations will not be saved.
+        """
+        if images_directory_path:
+            save_dataset_images(
+                dataset=self,
+                images_directory_path=images_directory_path,
+            )
+        if annotations_directory_path:
+            save_darwin_annotations(
+                dataset=self,
+                annotation_directory_path=annotations_directory_path,
+                classes=self.classes,
+                darwin_dataset_name=darwin_dataset_name,
+            )
+        return
+
     def as_pascal_voc(
         self,
         images_directory_path: Optional[str] = None,
@@ -604,24 +658,6 @@ class DetectionDataset(BaseDataset):
             images_directory_path=images_directory_path,
             annotations_path=annotations_path,
             force_masks=force_masks,
-        )
-        return DetectionDataset(classes=classes, images=images, annotations=annotations)
-    
-    @classmethod
-    def from_darwin(
-        cls,
-        images_directory_path: str,
-        annotations_path: str,
-        classes: list,
-        force_masks: bool = False,
-    ) -> DetectionDataset:
-        from supervision.dataset.formats import darwin
-
-        classes, images, annotations = darwin.load_darwin_annotations(
-            images_directory_path=images_directory_path,
-            annotations_path=annotations_path,
-            force_masks=force_masks,
-            classes = classes,
         )
         return DetectionDataset(classes=classes, images=images, annotations=annotations)
 
