@@ -261,16 +261,11 @@ def save_coco_annotations(
 if __name__ == "__main__":
     from pathlib import Path
 
-    base_dir = Path("/mnt/GARdata/datasets/3710496261_broccoli_detection")
-    annotations_path = base_dir / "anns/4-Paper04/train.json"
-
+    base_dir = Path("/mnt/GARdata/datasets/project_name")
+    annotations_path = base_dir / "anns/ann_version/coco/train.json"
     images_directory_path = base_dir / "images"
     force_masks: bool = (False,)
     classes = [
         "healthy",
-        "damaged",
-        "mature",
-        "cateye",
-        "headrot",
     ]  # (list[str]) target classes
     load_coco_annotations(str(images_directory_path), str(annotations_path), True)
