@@ -252,7 +252,7 @@ def _detections_to_darwin_annotations(
     annotations = []
     for xyxy, mask, confidence, class_id, tracker_id, data in detections:
         ann_id = str(uuid.uuid4())
-        class_name = classes[class_id]
+        class_name = classes[int(class_id)]
         print(data)
         annotation = {
             "id": ann_id,
