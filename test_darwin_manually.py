@@ -3,7 +3,9 @@ from supervision.dataset.core import DetectionDataset
 if __name__ == "__main__":
     from pathlib import Path
 
-    base_dir = "/mnt/wur-w-VisionRoboticsData/GARdata/new_format/0000000000_sample/datasets/"
+    base_dir = (
+        "/mnt/wur-w-VisionRoboticsData/GARdata/new_format/0000000000_sample/datasets/"
+    )
     images_directory_path = base_dir + "images/"
     annotations_path = base_dir + "anns/0-insseg-sample/darwin"
 
@@ -17,9 +19,7 @@ if __name__ == "__main__":
         classes=classes,
     )
 
-    images_directory_path_output = Path(
-        "testing_superivision_woohoo/images/"
-    )
+    images_directory_path_output = Path("testing_superivision_woohoo/images/")
     annotations_path_output = Path(
         "testing_superivision_woohoo/annotations/0-insseg-sample/darwin"
     )

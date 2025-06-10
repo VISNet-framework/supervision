@@ -4977,6 +4977,8 @@ dev = [
     { name = "jupytext" },
     { name = "nbconvert" },
     { name = "notebook" },
+    { name = "pre-commit", version = "3.5.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
+    { name = "pre-commit", version = "4.2.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
     { name = "pytest" },
     { name = "tox" },
 ]
@@ -4995,12 +4997,6 @@ docs = [
 metrics = [
     { name = "pandas", version = "2.0.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
     { name = "pandas", version = "2.2.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pre-commit", version = "3.5.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
-    { name = "pre-commit", version = "4.2.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
 ]
 
 [package.metadata]
@@ -5025,6 +5021,7 @@ requires-dist = [
     { name = "opencv-python", specifier = ">=4.5.5.64" },
     { name = "pandas", marker = "extra == 'metrics'", specifier = ">=2.0.0" },
     { name = "pillow", specifier = ">=9.4" },
+    { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.5.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.2.2,<9.0.0" },
     { name = "pyyaml", specifier = ">=5.3" },
     { name = "requests", specifier = ">=2.26.0" },
@@ -5034,9 +5031,6 @@ requires-dist = [
     { name = "twine", marker = "extra == 'build'", specifier = ">=5.1.1,<7.0.0" },
     { name = "wheel", marker = "extra == 'build'", specifier = ">=0.40,<0.46" },
 ]
-
-[package.metadata.requires-dev]
-dev = [{ name = "pre-commit", specifier = ">=3.5.0" }]
 
 [[package]]
 name = "terminado"
