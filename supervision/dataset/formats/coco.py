@@ -1,3 +1,4 @@
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List, Tuple
@@ -228,9 +229,8 @@ def save_coco_annotations(
         # NOTE: we save the image name as a relative path
         # from the annotation file location
         image_path_absolute = Path(image_path).resolve()
-        image_path_relative = image_path_absolute.relative_to(
-            annotation_path.parent,
-            walk_up=True,
+        image_path_relative = os.path.relpath(
+            image_path_absolute, start=annotation_path.parent
         )
         image_name = str(image_path_relative)
         coco_image = {
