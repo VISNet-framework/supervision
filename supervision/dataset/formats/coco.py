@@ -1,4 +1,3 @@
-import os
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List, Tuple
@@ -184,7 +183,7 @@ def load_coco_annotations(
             coco_image["height"],
         )
         image_annotations = coco_annotations_groups.get(coco_image["id"], [])
-        image_path = os.path.join(images_directory_path, image_name)
+        image_path = str((Path(annotations_path).parent / image_name).resolve())
 
         annotation = coco_annotations_to_detections(
             image_annotations=image_annotations,
@@ -209,7 +208,8 @@ def save_coco_annotations(
     max_image_area_percentage: float = 1.0,
     approximation_percentage: float = 0.75,
 ) -> None:
-    Path(annotation_path).parent.mkdir(parents=True, exist_ok=True)
+    annotation_path = Path(annotation_path)
+    annotation_path.parent.mkdir(parents=True, exist_ok=True)
     licenses = [
         {
             "id": 1,
@@ -225,7 +225,14 @@ def save_coco_annotations(
     image_id, annotation_id = 1, 1
     for image_path, image, annotation in dataset:
         image_height, image_width, _ = image.shape
-        image_name = f"{Path(image_path).stem}{Path(image_path).suffix}"
+        # NOTE: we save the image name as a relative path
+        # from the annotation file location
+        image_path_absolute = Path(image_path).resolve()
+        image_path_relative = image_path_absolute.relative_to(
+            annotation_path.parent,
+            walk_up=True,
+        )
+        image_name = str(image_path_relative)
         coco_image = {
             "id": image_id,
             "license": 1,
