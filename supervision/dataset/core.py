@@ -402,7 +402,12 @@ class DetectionDataset(BaseDataset):
         Creates a Dataset instance from DOTAv2 formatted data.
 
         Args:
-            annotations_directory_path (str): The path to the directory
+            image_directory_path (str): The path to the images.
+            annotations_directory_path (str): The path to the annotations.
+            classes (list[str]): List of class names.
+        Returns:
+            DetectionDataset: A DetectionDataset instance containing
+                the loaded images with oriented bounding box annotations.
         """
         classes, image_paths, annotations = load_dotav2_annotations(
             image_directory_path=image_directory_path,

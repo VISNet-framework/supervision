@@ -31,7 +31,7 @@ def detections_to_dota_annotations(
         detections (Detections): Detections object containing detection data.
         classes (List[str]): List of class names.
     Returns:
-        str: lines of DOTAV2 format to write to .txt file.
+        list[str]: lines of DOTAV2 format to write to .txt file.
     """
     # Convert detections to DOTAV2 format
     lines = []
@@ -56,10 +56,10 @@ def save_dotav2_annotations(
     Save detections to DOTAV2 annotations format.
 
     Args:
-        detections (Detections): Detections object containing detection data.
-        image_path (Path): Path to the image file.
-        classes (List[str]): List of class names.
-        output_dir (Path): Directory to save the annotations.
+        dataset (DetectionDataset): Dataset containing images and annotations.
+        annotations_directory_path (Path): Directory path to save the annotations.
+    Returns:
+        None
     """
     # Create output directory if it doesn't exist
     annotations_directory_path.mkdir(parents=True, exist_ok=True)
@@ -89,11 +89,11 @@ def dota_annotation_to_detections(
     Load DOTAV2 annotations from a .txt file.
 
     Args:
-        image_path (Path): Path to the image file.
-        annotations_directory_path (Path): Directory containing the annotations.
+        annotation_path (Path): Path to the annotation file.
+        classes (list[str]): List of class names.
 
     Returns:
-        List[Dict]: List of dictionaries containing annotation data.
+        Detections: Detections object containing the loaded annotations.
     """
     if not annotation_path.exists():
         raise FileNotFoundError(f"Annotation file not found: {annotation_path}")
@@ -146,7 +146,7 @@ def find_valid_images_and_annotations(
     images_directory_path: Path, annotation_path: Path
 ) -> Tuple[List[Path], List[Path]]:
     """
-    Find valid images and darwin annotations in the given directories.
+    Find valid images and dotav2 annotations in the given directories.
     """
     image_candidate_paths = list_files_with_extensions_recursively(
         directory=images_directory_path,
