@@ -4,6 +4,7 @@ from typing import Dict, List, Optional, Union
 
 import numpy as np
 import yaml
+import datetime
 
 
 class NumpyJsonEncoder(json.JSONEncoder):
@@ -15,6 +16,23 @@ class NumpyJsonEncoder(json.JSONEncoder):
         if isinstance(obj, np.ndarray):
             return obj.tolist()
         return super(NumpyJsonEncoder, self).default(obj)
+
+
+class ExtendedJSONEncoder(json.JSONEncoder):
+    """Special json encoder for numpy types, paths and datetimes"""
+
+    def default(self, obj):
+        if isinstance(obj, (datetime.datetime, datetime.date, datetime.time)):
+            return obj.isoformat()
+        if isinstance(obj, Path):
+            return str(obj)
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return json.JSONEncoder.default(self, obj)
 
 
 def list_files_with_extensions(
