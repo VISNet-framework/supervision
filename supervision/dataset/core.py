@@ -19,6 +19,10 @@ from supervision.dataset.formats.darwin import (
     load_darwin_annotations,
     save_darwin_annotations,
 )
+from supervision.dataset.formats.dotav2 import (
+    load_dotav2_annotations,
+    save_dotav2_annotations,
+)
 from supervision.dataset.formats.pascal_voc import (
     detections_to_pascal_voc,
     load_pascal_voc_annotations,
@@ -343,6 +347,7 @@ class DetectionDataset(BaseDataset):
         classes: list,
         force_masks: bool = False,
         force_track_ids: bool = False,
+        with_ellipse_as: Optional[str] = None,
     ) -> DetectionDataset:
         classes, images, annotations = load_darwin_annotations(
             images_directory_path=images_directory_path,
@@ -350,6 +355,7 @@ class DetectionDataset(BaseDataset):
             classes=classes,
             force_masks=force_masks,
             force_track_ids=force_track_ids,
+            with_ellipse_as=with_ellipse_as,
         )
         return DetectionDataset(classes=classes, images=images, annotations=annotations)
 
@@ -382,6 +388,62 @@ class DetectionDataset(BaseDataset):
                 annotation_directory_path=annotations_directory_path,
                 classes=self.classes,
                 darwin_dataset_name=darwin_dataset_name,
+            )
+        return
+
+    @classmethod
+    def from_dotav2(
+        self,
+        image_directory_path: str,
+        annotations_directory_path: str,
+        classes: list[str],
+    ) -> DetectionDataset:
+        """
+        Creates a Dataset instance from DOTAv2 formatted data.
+
+        Args:
+            image_directory_path (str): The path to the images.
+            annotations_directory_path (str): The path to the annotations.
+            classes (list[str]): List of class names.
+        Returns:
+            DetectionDataset: A DetectionDataset instance containing
+                the loaded images with oriented bounding box annotations.
+        """
+        classes, image_paths, annotations = load_dotav2_annotations(
+            image_directory_path=image_directory_path,
+            annotations_directory_path=annotations_directory_path,
+            classes=classes,
+        )
+        return DetectionDataset(
+            classes=classes, images=image_paths, annotations=annotations
+        )
+
+    def as_dotav2(
+        self,
+        images_directory_path: Optional[str] = None,
+        annotations_directory_path: Optional[str] = None,
+    ) -> None:
+        """
+        Exports the dataset to DOTAv2 format. This method saves the images
+        and their corresponding annotations in DOTAv2 format.
+
+        Args:
+            images_directory_path (Optional[str]): The path to the directory
+                where the images should be saved.
+                If not provided, images will not be saved.
+            annotations_directory_path (Optional[str]): The path to the directory
+                where the annotations in DOTAv2 format should be saved.
+                If not provided, annotations will not be saved.
+        """
+        if images_directory_path:
+            save_dataset_images(
+                dataset=self,
+                images_directory_path=images_directory_path,
+            )
+        if annotations_directory_path:
+            save_dotav2_annotations(
+                dataset=self,
+                annotations_directory_path=Path(annotations_directory_path),
             )
         return
 
