@@ -83,7 +83,11 @@ def merge_detections_to_dict(dets: list[SingleDetection]) -> dict:
     for d in dets:
         for key in data_keys:
             data[key].append(d.data.get(key, None))
-    data = {k: np.array(v) for k, v in data.items()}
+    try:
+        data = {k: np.array(v) for k, v in data.items()}
+    except ValueError:
+        data = {k: list(v) for k, v in data.items()}
+
 
     result = {
         "xyxy": xyxy,
