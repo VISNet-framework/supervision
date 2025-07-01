@@ -310,6 +310,7 @@ def test_darwin_annotations_to_detections_dict_bbox(tmpdir):
 
 def test_darwin_annotations_to_detections_dict_ellipse_mask(tmpdir):
     # Darwin JSON with one ellipse annotation
+    radius_x, radius_y = 5, 3
     darwin_dict = {
         "version": "2.0",
         "schema_ref": "dummy",
@@ -323,7 +324,7 @@ def test_darwin_annotations_to_detections_dict_ellipse_mask(tmpdir):
                 "name": "cat",
                 "ellipse": {
                     "center": {"x": 10, "y": 10},
-                    "radius": {"x": 5, "y": 3},
+                    "radius": {"x": radius_x, "y": radius_y},
                     "angle": 0.0,
                 },
             }
@@ -344,6 +345,13 @@ def test_darwin_annotations_to_detections_dict_ellipse_mask(tmpdir):
     assert "mask" in result
     assert result["mask"].shape[1:] == (20, 20)
     assert np.max(result["mask"]) == 1
+    ## size of bounding box should be the same as radius if angle_deg = 0
+    np.testing.assert_allclose(
+        result["xyxy"][0][2] - result["xyxy"][0][0], radius_x * 2, atol=1
+    )
+    np.testing.assert_allclose(
+        result["xyxy"][0][3] - result["xyxy"][0][1], radius_y * 2, atol=1
+    )
 
 
 def test_darwin_annotations_to_detections_dict_ellipse_obb(tmpdir):
