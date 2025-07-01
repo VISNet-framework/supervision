@@ -88,7 +88,6 @@ def merge_detections_to_dict(dets: list[SingleDetection]) -> dict:
     except ValueError:
         data = {k: list(v) for k, v in data.items()}
 
-
     result = {
         "xyxy": xyxy,
         "class_id": np.array(class_id),

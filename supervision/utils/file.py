@@ -1,10 +1,10 @@
+import datetime
 import json
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
 import numpy as np
 import yaml
-import datetime
 
 
 class NumpyJsonEncoder(json.JSONEncoder):
