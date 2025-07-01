@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Dict, List, Tuple
 import cv2
 import numpy as np
 import numpy.typing as npt
+import tqdm
 
 from supervision.dataset.utils import (
     approximate_mask_with_polygons,
@@ -301,66 +302,58 @@ def create_mask_coco_semseg_per_box(
             image dimensions.
     """
 
+    def write_semseg(temp_annotation: Detections, unique_id: int):
+        """
+        Write coco segmentation based on unique_id
+        return xyxy position
+        """
+        mask, xyxy = create_mask_coco_semseg(
+            image_height,
+            image_width,
+            temp_annotation,
+            idx_skip_classes,
+            semseg_per_box=True,
+        )
+        mask_name = annotation_path.parent / (
+            Path(image_name).stem + f"_{unique_id}.png"
+        )
+
+        if images_directory_path is not None and bgr_img is not None:
+            new_image_name = images_directory_path / mask_name.name
+            cv2.imwrite(
+                str(new_image_name), bgr_img[xyxy[1] : xyxy[3], xyxy[0] : xyxy[2]]
+            )
+        else:
+            new_image_name = image_name
+        image_path_relative = os.path.relpath(
+            new_image_name, start=annotation_path.parent
+        )
+        new_image_name = str(image_path_relative)
+
+        cv2.imwrite(str(mask_name), mask.astype(np.uint8))
+        coco_image = {
+            "file_name": str(new_image_name),
+            "semseg_file_name": os.path.relpath(
+                str(mask_name), start=annotation_path.parent
+            ),
+            "height": image_height,
+            "width": image_width,
+        }
+        return coco_image
+
     coco_semseg_annotations = []
     if None in annotation.tracker_id:
         unique_id = 0
         for temp_annotation in annotation:
-            mask, xyxy = create_mask_coco_semseg(
-                image_height,
-                image_width,
-                temp_annotation,
-                idx_skip_classes,
-                semseg_per_box=True,
-            )
-            mask_name = annotation_path.parent / (
-                Path(image_name).stem + f"_{unique_id}.png"
-            )
-
-            if images_directory_path is not None and bgr_img is not None:
-                new_image_name = images_directory_path / mask_name.name
-                cv2.imwrite(
-                    str(new_image_name), bgr_img[xyxy[1] : xyxy[3], xyxy[0] : xyxy[2]]
-                )
-            else:
-                new_image_name = image_name
-
-            cv2.imwrite(str(mask_name), mask.astype(np.uint8))
-            coco_image = {
-                "file_name": str(new_image_name),
-                "semseg_file_name": os.path.relpath(
-                    str(mask_name), start=annotation_path.parent
-                ),
-                "height": image_height,
-                "width": image_width,
-            }
+            coco_image = write_semseg(temp_annotation, unique_id)
             coco_semseg_annotations.append(coco_image)
             unique_id += 1
     else:
+        ## create object for every unique tracker id
         unique_tracker_id = np.unique(annotation.tracker_id)
         for unique_id in unique_tracker_id:
             temp_annotation = annotation[annotation.tracker_id == unique_id]
-
-            mask = create_mask_coco_semseg(
-                image_height,
-                image_width,
-                temp_annotation,
-                idx_skip_classes,
-                semseg_per_box=True,
-                bgr_img=bgr_img,
-                images_directory_path=images_directory_path,
-            )
-            mask_name = annotation_path.parent / (
-                Path(image_name).stem + f"_{unique_id}.png"
-            )
-            cv2.imwrite(str(mask_name), mask.astype(np.uint8))
-            coco_image = {
-                "file_name": str(image_name),
-                "semseg_file_name": os.path.relpath(
-                    str(mask_name), start=annotation_path.parent
-                ),
-                "height": image_height,
-                "width": image_width,
-            }
+            coco_image = write_semseg(temp_annotation, unique_id)
             coco_semseg_annotations.append(coco_image)
     return coco_semseg_annotations
 
@@ -395,6 +388,10 @@ def create_mask_coco_semseg(
         mask = np.maximum(mask, (instance_mask.astype(np.uint8) * (class_id)))
 
     if semseg_per_box:
+        # temp = np.argwhere(mask)
+        # y1, x1 = temp.max(0)
+        # y0, x0 = temp.min(0)
+
         temp_annotation.xyxy = temp_annotation.xyxy.astype(np.int64)
 
         ## mask_bounding based on min_max xyxy values
@@ -457,6 +454,10 @@ def save_coco_semseg_annotations(
     """
     # TODO future work, instead of using save_coco_semseg make a function to crop
     # Detections and optionally save json.
+    if images_directory_path is not None:
+        images_directory_path = Path(images_directory_path)
+        images_directory_path.mkdir(exist_ok=True)
+
     annotation_path = Path(annotation_path)
     annotation_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -485,52 +486,52 @@ def save_coco_semseg_annotations(
         ]
 
     coco_semseg_annotations = []
-    for image_path, bgr_img, annotation in dataset:
-        image_path = Path(image_path)
+    with tqdm.tqdm(dataset, desc="Creating coco_semseg images", unit="img") as pbar:
+        for image_path, bgr_img, annotation in pbar:
+            image_path = Path(image_path)
 
-        if segmentation_order_id:
-            ## reorder annotations
-            annotation = reorder_annotation(annotation, segmentation_order)
+            if segmentation_order_id:
+                # reorder annotations
+                annotation = reorder_annotation(annotation, segmentation_order)
 
-        image_height, image_width, _ = bgr_img.shape
-        image_path_absolute = image_path.resolve()
-        image_path_relative = os.path.relpath(
-            image_path_absolute, start=annotation_path.parent
-        )
-        image_name = str(image_path_relative)
+            image_height, image_width, _ = bgr_img.shape
+            image_path_absolute = image_path.resolve()
+            image_path_relative = os.path.relpath(
+                image_path_absolute, start=annotation_path.parent
+            )
+            image_name = str(image_path_relative)
 
-        ## if true a semantic mask will be created per box
-        if semseg_per_box:
-            coco_semseg_annotations.extend(
-                create_mask_coco_semseg_per_box(
-                    image_height=image_height,
-                    image_width=image_width,
-                    annotation=annotation,
-                    annotation_path=annotation_path,
-                    image_name=image_name,
-                    idx_skip_classes=idx_skip_classes,
-                    bgr_img=bgr_img,
-                    images_directory_path=images_directory_path,
+            # if true a semantic mask will be created per box
+            if semseg_per_box:
+                coco_semseg_annotations.extend(
+                    create_mask_coco_semseg_per_box(
+                        image_height=image_height,
+                        image_width=image_width,
+                        annotation=annotation,
+                        annotation_path=annotation_path,
+                        image_name=image_name,
+                        idx_skip_classes=idx_skip_classes,
+                        bgr_img=bgr_img,
+                        images_directory_path=images_directory_path,
+                    )
                 )
-            )
+            else:
+                mask = create_mask_coco_semseg(
+                    image_height, image_width, annotation, idx_skip_classes
+                )
 
-        else:
-            mask = create_mask_coco_semseg(
-                image_height, image_width, annotation, idx_skip_classes
-            )
+                mask_name = annotation_path.parent / (image_path.stem + ".png")
+                cv2.imwrite(str(mask_name), mask.astype(np.uint8))
 
-            mask_name = annotation_path.parent / (image_path.stem + ".png")
-            cv2.imwrite(str(mask_name), mask.astype(np.uint8))
-
-            coco_image = {
-                "file_name": str(image_name),
-                "semseg_file_name": os.path.relpath(
-                    str(mask_name), start=annotation_path.parent
-                ),
-                "height": image_height,
-                "width": image_width,
-            }
-            coco_semseg_annotations.append(coco_image)
+                coco_image = {
+                    "file_name": str(image_name),
+                    "semseg_file_name": os.path.relpath(
+                        str(mask_name), start=annotation_path.parent
+                    ),
+                    "height": image_height,
+                    "width": image_width,
+                }
+                coco_semseg_annotations.append(coco_image)
 
     save_json_file(coco_semseg_annotations, file_path=annotation_path)
 

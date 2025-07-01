@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
+import tqdm
 from natsort import natsorted
 
 from supervision.config import (
@@ -77,7 +78,6 @@ def load_darwin_annotations(
     """
     ## TODO implement loading of metadata using json:
     # current idea at image location replace.png/.jpg with .json
-
     images_directory_path = Path(images_directory_path)
     annotation_directory_path = Path(annotation_directory_path)
     images_paths, annotation_paths = find_valid_images_and_annotations(
@@ -87,17 +87,22 @@ def load_darwin_annotations(
     images = []
     annotations = {}
 
-    for img_name, annot_name in zip(images_paths, annotation_paths):
-        annotation = Detections.from_darwin(
-            json_name=annot_name,
-            with_masks=force_masks,
-            classes=classes,
-            skip_unknown_classes=True,
-            with_track_ids=force_track_ids,
-            with_ellipse_as=with_ellipse_as,
-        )
-        images.append(str(img_name))
-        annotations[str(img_name)] = annotation
+    with tqdm.tqdm(
+        zip(images_paths, annotation_paths),
+        total=len(images_paths),
+        desc="Loading Darwin annotations",
+    ) as pbar:
+        for img_name, annot_name in pbar:
+            annotation = Detections.from_darwin(
+                json_name=annot_name,
+                with_masks=force_masks,
+                classes=classes,
+                skip_unknown_classes=True,
+                with_track_ids=force_track_ids,
+                with_ellipse_as=with_ellipse_as,
+            )
+            images.append(str(img_name))
+            annotations[str(img_name)] = annotation
 
     return classes, images, annotations
 
