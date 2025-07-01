@@ -793,25 +793,28 @@ class DetectionDataset(BaseDataset):
         Exports the dataset in COCO semantic segmentation format.
 
         Args:
-            images_directory_path (Optional[str]): Path to save dataset images. If None, images are not saved.
-            annotations_path (Optional[str]): Path to save COCO semantic segmentation annotations for example: /path/train.json. If None, annotations are not saved.
-            semseg_per_box (bool): If True, generates a separate segmentation mask for each bounding box.
-            segmentation_order (list[str] | None): List specifying the order of classes for segmentation masks.
-            skip_classes (list[str] | None): List of class names to skip during mask creation.
+            images_directory_path (Optional[str]): Path to save dataset images.
+                If None, images are not saved.
+            annotations_path (Optional[str]): Path to save COCO semantic segmentation
+                annotations, for example: /path/train.json. If None, annotations are
+                not saved.
+            semseg_per_box (bool): If True, generates a separate segmentation mask
+                for each bounding box.
+            segmentation_order (list[str] | None): List specifying the order of
+                classes for segmentation masks.
+            skip_classes (list[str] | None): List of class names to skip during mask
+                creation.
         Returns:
             None
         """
-        if images_directory_path is not None:
-            save_dataset_images(
-                dataset=self, images_directory_path=images_directory_path
-            )
         if annotations_path is not None:
             save_coco_semseg_annotations(
                 dataset=self,
+                images_directory_path=images_directory_path,
                 annotation_path=annotations_path,
                 semseg_per_box=semseg_per_box,
                 segmentation_order=segmentation_order,
-                skip_classes=skip_classes
+                skip_classes=skip_classes,
             )
 
 
