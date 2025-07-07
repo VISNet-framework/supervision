@@ -247,6 +247,7 @@ def darwin_ellipse_to_xyxyxyxy(darwin_ellipse: dict) -> list[list[float]]:
     sin_theta = math.sin(angle_rad)
 
     # Define the 4 corners of the bounding rectangle before rotation
+    # left up, right up, right down, left, down (in image space)
     corners = [(-rx, -ry), (rx, -ry), (rx, ry), (-rx, ry)]
 
     # Rotate and translate corners
