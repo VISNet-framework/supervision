@@ -1,8 +1,9 @@
 import datetime
 import json
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Tuple, Union
 
+import natsort
 import numpy as np
 import yaml
 
@@ -100,6 +101,51 @@ def list_files_with_extensions_recursively(
         files_with_extensions.extend(directory.rglob("*"))
 
     return files_with_extensions
+
+
+def find_valid_images_and_annotations(
+    images_directory_path: Path,
+    annotation_path: Path,
+    images_extentions=["jpg", "jpeg", "png", "tiff", "tif"],
+    annotation_extentions=["json"],
+) -> Tuple[List[Path], List[Path]]:
+    """
+    Finds and matches valid image files and their corresponding annotation files
+
+    Args:
+        images_directory_path (Path): Path to the directory containing image files.
+        annotation_path (Path): Path to the directory containing annotation files.
+        images_extentions (List[str], optional): List of valid image file extensions.
+        annotation_extentions (List[str], optional): List of valid annotation file ext.
+
+    Returns:
+        Tuple[List[Path], List[Path]]:
+            - List of image file paths that have corresponding annotation files.
+            - List of annotation file paths, sorted in natural order.
+    """
+
+    image_candidate_paths = list_files_with_extensions_recursively(
+        directory=images_directory_path,
+        extensions=images_extentions,
+    )
+    image_candidate_stems = [path.stem for path in image_candidate_paths]
+    assert len(image_candidate_stems) == len(set(image_candidate_stems)), (
+        "Image filenames must be unique"
+    )
+
+    annotation_paths = list_files_with_extensions_recursively(
+        directory=annotation_path,
+        extensions=annotation_extentions,
+    )
+    annotation_paths = natsort.natsorted(annotation_paths)
+
+    image_paths = []
+    for annotation_path in annotation_paths:
+        # find the corresponding image path
+        image_stem = annotation_path.stem
+        image_path = image_candidate_paths[image_candidate_stems.index(image_stem)]
+        image_paths.append(image_path)
+    return image_paths, annotation_paths
 
 
 def read_txt_file(file_path: Union[str, Path], skip_empty: bool = False) -> List[str]:

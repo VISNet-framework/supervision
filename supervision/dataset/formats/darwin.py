@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 import tqdm
-from natsort import natsorted
 
 from supervision.config import (
     ORIENTED_BOX_COORDINATES,
@@ -16,42 +15,12 @@ from supervision.dataset.utils import (
 )
 from supervision.detection.core import Detections
 from supervision.utils.file import (
-    list_files_with_extensions_recursively,
+    find_valid_images_and_annotations,
     save_json_file,
 )
 
 if TYPE_CHECKING:
     from supervision.dataset.core import DetectionDataset
-
-
-def find_valid_images_and_annotations(
-    images_directory_path: Path, annotation_path: Path
-) -> Tuple[List[Path], List[Path]]:
-    """
-    Find valid images and darwin annotations in the given directories.
-    """
-    image_candidate_paths = list_files_with_extensions_recursively(
-        directory=images_directory_path,
-        extensions=["jpg", "jpeg", "png", "tiff", "tif"],
-    )
-    image_candidate_stems = [path.stem for path in image_candidate_paths]
-    assert len(image_candidate_stems) == len(set(image_candidate_stems)), (
-        "Image filenames must be unique"
-    )
-
-    annotation_paths = list_files_with_extensions_recursively(
-        directory=annotation_path,
-        extensions=["json"],
-    )
-    annotation_paths = natsorted(annotation_paths)
-
-    image_paths = []
-    for annotation_path in annotation_paths:
-        # find the corresponding image path
-        image_stem = annotation_path.stem
-        image_path = image_candidate_paths[image_candidate_stems.index(image_stem)]
-        image_paths.append(image_path)
-    return image_paths, annotation_paths
 
 
 def load_darwin_annotations(
