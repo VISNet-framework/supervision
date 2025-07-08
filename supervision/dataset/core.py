@@ -14,6 +14,10 @@ from supervision.classification.core import Classifications
 from supervision.dataset.formats.coco import (
     load_coco_annotations,
     save_coco_annotations,
+)
+from supervision.dataset.formats.coco_semseg import (
+    load_coco_semseg_annotations,
+    load_from_semseg_dir,
     save_coco_semseg_annotations,
 )
 from supervision.dataset.formats.darwin import (
@@ -816,6 +820,64 @@ class DetectionDataset(BaseDataset):
                 segmentation_order=segmentation_order,
                 skip_classes=skip_classes,
             )
+
+    @classmethod
+    def from_coco_semseg(
+        cls,
+        annotations_path: str,
+        classes: list[str],
+        images_directory_path: str | None = None,
+    ):
+        """
+        Creates a DetectionDataset instance from COCO semantic segmentation
+        annotations.
+
+        Args:
+            annotations_path (str): Path to the COCO-format annotation file.
+            classes (list[str]): List of class names corresponding to the dataset.
+            images_directory_path (str | None, optional): Path to the directory
+            containing images. Defaults to None.
+
+        Returns:
+            DetectionDataset: An instance of DetectionDataset initialized.
+
+        Note:
+            This method expects the annotation file to be in COCO semantic
+            segmentation format:
+            [{"file_name": test.png,
+                "sem_seg_file_name": semseg/test.png,
+                "height": 100,
+                "width": 100},
+            ...]
+        """
+
+        images, annotations = load_coco_semseg_annotations(
+            images_directory_path=images_directory_path,
+            annotations_path=annotations_path,
+        )
+        return DetectionDataset(classes=classes, images=images, annotations=annotations)
+
+    def from_semseg_dir(
+        images_directory_path: str,
+        annotations_path: str,
+        classes: list[str],
+    ):
+        """
+        Creates a DetectionDataset instance from a semantic segmentation directory.
+
+        Args:
+            images_directory_path (str): Path to the directory containing images.
+            annotations_path (str): Path to the directory containing annotation files.
+            classes (list[str]): List of class names.
+
+        Returns:
+            DetectionDataset: An instance of DetectionDataset.
+        """
+        images, annotations = load_from_semseg_dir(
+            images_directory_path=images_directory_path,
+            annotations_path=annotations_path,
+        )
+        return DetectionDataset(classes=classes, images=images, annotations=annotations)
 
 
 @dataclass

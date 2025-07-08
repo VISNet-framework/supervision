@@ -1602,3 +1602,23 @@ def validate_fields_both_defined_or_none(
                 f"Field '{attribute}' should be consistently None or not None in both "
                 "Detections."
             )
+
+
+def reorder_detections(detections: Detections, segmentation_order_id: list[int]):
+    """
+    Reorders Detections so that objects with class IDs in
+    segmentation_order_id appear first, in the given order. Remaining
+    objects are appended in their original order.
+    """
+    if not segmentation_order_id:
+        return detections
+
+    order = []
+    for class_id in segmentation_order_id:
+        idxs = np.where(detections.class_id == class_id)[0]
+        order.extend(idxs.tolist())
+    # Add any remaining indices not in segmentation_order_id
+    remaining = [i for i in range(len(detections.class_id)) if i not in order]
+    order.extend(remaining)
+    detections = detections[order]
+    return detections
