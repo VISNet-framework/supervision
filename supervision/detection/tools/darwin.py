@@ -83,7 +83,10 @@ def merge_detections_to_dict(dets: list[SingleDetection]) -> dict:
     for d in dets:
         for key in data_keys:
             data[key].append(d.data.get(key, None))
-    data = {k: np.array(v) for k, v in data.items()}
+    try:
+        data = {k: np.array(v) for k, v in data.items()}
+    except ValueError:
+        data = {k: list(v) for k, v in data.items()}
 
     result = {
         "xyxy": xyxy,
@@ -244,6 +247,7 @@ def darwin_ellipse_to_xyxyxyxy(darwin_ellipse: dict) -> list[list[float]]:
     sin_theta = math.sin(angle_rad)
 
     # Define the 4 corners of the bounding rectangle before rotation
+    # left up, right up, right down, left, down (in image space)
     corners = [(-rx, -ry), (rx, -ry), (rx, ry), (-rx, ry)]
 
     # Rotate and translate corners

@@ -15,6 +15,11 @@ from supervision.dataset.formats.coco import (
     load_coco_annotations,
     save_coco_annotations,
 )
+from supervision.dataset.formats.coco_semseg import (
+    load_coco_semseg_annotations,
+    load_from_semseg_dir,
+    save_coco_semseg_annotations,
+)
 from supervision.dataset.formats.darwin import (
     load_darwin_annotations,
     save_darwin_annotations,
@@ -779,6 +784,100 @@ class DetectionDataset(BaseDataset):
                 max_image_area_percentage=max_image_area_percentage,
                 approximation_percentage=approximation_percentage,
             )
+
+    def as_coco_semseg(
+        self,
+        images_directory_path: Optional[str] = None,
+        annotations_path: Optional[str] = None,
+        semseg_per_box: bool = False,
+        segmentation_order: list[str] | None = None,
+        skip_classes: list[str] | None = None,
+    ) -> None:
+        """
+        Exports the dataset in COCO semantic segmentation format.
+
+        Args:
+            images_directory_path (Optional[str]): Path to save dataset images.
+                If None, images are not saved.
+            annotations_path (Optional[str]): Path to save COCO semantic segmentation
+                annotations, for example: /path/train.json. If None, annotations are
+                not saved.
+            semseg_per_box (bool): If True, generates a separate segmentation mask
+                for each bounding box.
+            segmentation_order (list[str] | None): List specifying the order of
+                classes for segmentation masks.
+            skip_classes (list[str] | None): List of class names to skip during mask
+                creation.
+        Returns:
+            None
+        """
+        if annotations_path is not None:
+            save_coco_semseg_annotations(
+                dataset=self,
+                images_directory_path=images_directory_path,
+                annotation_path=annotations_path,
+                semseg_per_box=semseg_per_box,
+                segmentation_order=segmentation_order,
+                skip_classes=skip_classes,
+            )
+
+    @classmethod
+    def from_coco_semseg(
+        cls,
+        annotations_path: str,
+        classes: list[str],
+        images_directory_path: str | None = None,
+    ):
+        """
+        Creates a DetectionDataset instance from COCO semantic segmentation
+        annotations.
+
+        Args:
+            annotations_path (str): Path to the COCO-format annotation file.
+            classes (list[str]): List of class names corresponding to the dataset.
+            images_directory_path (str | None, optional): Path to the directory
+            containing images. Defaults to None.
+
+        Returns:
+            DetectionDataset: An instance of DetectionDataset initialized.
+
+        Note:
+            This method expects the annotation file to be in COCO semantic
+            segmentation format:
+            [{"file_name": test.png,
+                "sem_seg_file_name": semseg/test.png,
+                "height": 100,
+                "width": 100},
+            ...]
+        """
+
+        images, annotations = load_coco_semseg_annotations(
+            images_directory_path=images_directory_path,
+            annotations_path=annotations_path,
+        )
+        return DetectionDataset(classes=classes, images=images, annotations=annotations)
+
+    def from_semseg_dir(
+        images_directory_path: str,
+        annotations_path: str,
+        classes: list[str],
+    ):
+        """
+        Creates a DetectionDataset instance from a semantic segmentation directory.
+
+        Args:
+            images_directory_path (str): Path to the directory containing images.
+            annotations_path (str): Path to the directory containing annotation files.
+            classes (list[str]): List of class names.
+
+        Returns:
+            DetectionDataset: An instance of DetectionDataset.
+        """
+        images, annotations = load_from_semseg_dir(
+            images_directory_path=images_directory_path,
+            annotations_path=annotations_path,
+        )
+        return DetectionDataset(classes=classes, images=images, annotations=annotations)
 
 
 @dataclass

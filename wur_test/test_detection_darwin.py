@@ -310,6 +310,7 @@ def test_darwin_annotations_to_detections_dict_bbox(tmpdir):
 
 def test_darwin_annotations_to_detections_dict_ellipse_mask(tmpdir):
     # Darwin JSON with one ellipse annotation
+    radius_x, radius_y = 5, 3
     darwin_dict = {
         "version": "2.0",
         "schema_ref": "dummy",
@@ -323,8 +324,8 @@ def test_darwin_annotations_to_detections_dict_ellipse_mask(tmpdir):
                 "name": "cat",
                 "ellipse": {
                     "center": {"x": 10, "y": 10},
-                    "radius": {"x": 5, "y": 3},
-                    "angle": 0.0,
+                    "radius": {"x": radius_x, "y": radius_y},
+                    "angle": 0,
                 },
             }
         ],
@@ -344,6 +345,120 @@ def test_darwin_annotations_to_detections_dict_ellipse_mask(tmpdir):
     assert "mask" in result
     assert result["mask"].shape[1:] == (20, 20)
     assert np.max(result["mask"]) == 1
+    ## size of bounding box should be the same as radius if angle_deg = 0
+    np.testing.assert_allclose(
+        result["xyxy"][0][2] - result["xyxy"][0][0], radius_x * 2, atol=1
+    )
+    np.testing.assert_allclose(
+        result["xyxy"][0][3] - result["xyxy"][0][1], radius_y * 2, atol=1
+    )
+
+
+def test_darwin_annotations_to_detections_dict_ellipse_mask_45angle_square(tmpdir):
+    # Darwin JSON with one ellipse annotation
+    radius_x, radius_y = 10, 10
+    darwin_dict = {
+        "version": "2.0",
+        "schema_ref": "dummy",
+        "item": {
+            "name": "img.jpg",
+            "path": "/",
+            "slots": [{"type": "image", "slot_name": "0", "width": 20, "height": 20}],
+        },
+        "annotations": [
+            {
+                "name": "cat",
+                "ellipse": {
+                    "center": {"x": 10, "y": 10},
+                    "radius": {"x": radius_x, "y": radius_y},
+                    "angle": np.deg2rad(45),
+                },
+            }
+        ],
+    }
+    filename = os.path.join(tmpdir, "img.json")
+    with open(filename, "w") as f:
+        json.dump(darwin_dict, f)
+    result = darwin.darwin_annotations_to_detections_dict(
+        json_name=filename,
+        with_masks=True,
+        classes=["cat"],
+        with_ellipse_as="mask",
+        with_track_ids=False,
+        skip_unknown_classes=True,
+    )
+    assert result["xyxy"].shape == (1, 4)
+    assert "mask" in result
+    assert result["mask"].shape[1:] == (20, 20)
+    assert np.max(result["mask"]) == 1
+    ## size of bounding box should be the same as radius if angle_deg = 0
+    np.testing.assert_allclose(
+        result["xyxy"][0][2] - result["xyxy"][0][0],
+        np.sqrt((radius_x * 2) ** 2 + (radius_y * 2) ** 2),
+        atol=0.1,
+    )
+    np.testing.assert_allclose(
+        result["xyxy"][0][3] - result["xyxy"][0][1],
+        np.sqrt((radius_x * 2) ** 2 + (radius_y * 2) ** 2),
+        atol=0.1,
+    )
+
+
+def test_darwin_annotations_to_detections_dict_ellipse_mask_45angle_rectangle(tmpdir):
+    # Darwin JSON with one ellipse annotation
+    radius_x, radius_y = 4, 3
+    angle = np.atan(radius_y / radius_x)
+    darwin_dict = {
+        "version": "2.0",
+        "schema_ref": "dummy",
+        "item": {
+            "name": "img.jpg",
+            "path": "/",
+            "slots": [{"type": "image", "slot_name": "0", "width": 20, "height": 20}],
+        },
+        "annotations": [
+            {
+                "name": "cat",
+                "ellipse": {
+                    "center": {"x": 10, "y": 10},
+                    "radius": {"x": radius_x, "y": radius_y},
+                    "angle": angle,
+                },
+            }
+        ],
+    }
+
+    filename = os.path.join(tmpdir, "img.json")
+    with open(filename, "w") as f:
+        json.dump(darwin_dict, f)
+    result = darwin.darwin_annotations_to_detections_dict(
+        json_name=filename,
+        with_masks=True,
+        classes=["cat"],
+        with_ellipse_as="mask",
+        with_track_ids=False,
+        skip_unknown_classes=True,
+    )
+    assert result["xyxy"].shape == (1, 4)
+    assert "mask" in result
+    assert result["mask"].shape[1:] == (20, 20)
+    assert np.max(result["mask"]) == 1
+    ## size x axis should be longest side
+    np.testing.assert_allclose(
+        result["xyxy"][0][2] - result["xyxy"][0][0],
+        np.sqrt((radius_x * 2) ** 2 + (radius_y * 2) ** 2),
+        atol=0.1,
+    )
+    np.testing.assert_allclose(
+        result["xyxy"][0][2] - result["xyxy"][0][0],
+        radius_x / np.cos(angle) * 2,
+        atol=0.1,
+    )
+    np.testing.assert_allclose(
+        result["xyxy"][0][3] - result["xyxy"][0][1],
+        (radius_y * np.cos(angle) + radius_x * np.sin(angle)) * 2,
+        atol=0.1,
+    )
 
 
 def test_darwin_annotations_to_detections_dict_ellipse_obb(tmpdir):
