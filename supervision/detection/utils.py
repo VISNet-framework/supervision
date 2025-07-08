@@ -528,7 +528,7 @@ def masks_to_semantic_mask(
         ## skip classes if exist
         if class_id in idx_skip_classes:
             continue
-        mask = np.maximum(mask, (instance_mask.astype(np.uint8) * (class_id)))
+        mask[np.where(instance_mask)] = class_id
     return mask.astype(np.uint8)
 
 

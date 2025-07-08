@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 from test_utils import mock_detections
 
+from supervision.detection.core import reorder_detections
 from supervision.detection.utils import masks_to_semantic_mask
 from supervision.utils.image import advanced_crop_bbox
 
@@ -34,6 +35,7 @@ def test_detections_to_mask(xyxy, confidence, class_id, tracker_id, mask):
     image_shape = (100, 100)
     bgr_img = np.zeros((3, image_shape[0], image_shape[1]))
 
+    ##  maximum is to because object is not nicely ordered
     mask = masks_to_semantic_mask(
         detections.mask,
         detections.class_id,
@@ -42,7 +44,20 @@ def test_detections_to_mask(xyxy, confidence, class_id, tracker_id, mask):
 
     assert mask.shape == image_shape
     assert mask.dtype == np.uint8
+    assert mask.max() == 1  ## because overwritten by latest mask
+
+    ##  after reordering detections mask.max() should contain 2 of first box
+    detections = reorder_detections(detections, segmentation_order_id=[1, 2])
+    assert np.all(detections.class_id == np.array([1, 2, 2]))
+
+    mask = masks_to_semantic_mask(
+        detections.mask,
+        detections.class_id,
+        idx_skip_classes=[],
+    )
     assert mask.max() == 2
+
+    detections = reorder_detections(detections, segmentation_order_id=[2, 1])
 
     image_list, mask_list, id_list = advanced_crop_bbox(
         bgr_img, detections.xyxy, None, mask
