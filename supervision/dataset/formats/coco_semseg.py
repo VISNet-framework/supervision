@@ -168,7 +168,7 @@ def save_coco_semseg_annotations(
 
                 coco_image = create_single_semseg(
                     bgr_img,
-                    image_path_rel,
+                    image_path,
                     mask,
                     mask_name,
                     annotation_path,
