@@ -16,8 +16,8 @@ dummy_mask2 = np.ones([100, 100], np.uint8)
         (
             [[10, 20, 30, 40], [10, 20, 30, 40], [0, 0, 100, 100]],
             [0.9, 0.75, 0.75],
-            [2, 2, 1],  # class_id
-            [1, 1, 2],  # tracker_id
+            [2, 2, 1],
+            [1, 1, 2],
             [dummy_mask, dummy_mask, dummy_mask2],
         ),
     ],
@@ -77,5 +77,5 @@ def test_detections_to_mask(xyxy, confidence, class_id, tracker_id, mask):
     assert len(image_list) == 2
     assert mask_list[0].shape == (20, 20)
     assert mask_list[0].dtype == np.uint8
-    assert mask_list[1].max() == 0
-    assert mask_list[1].min() == 0
+    assert mask_list[1].max() == 1
+    assert mask_list[1].min() == 1
