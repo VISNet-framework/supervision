@@ -259,7 +259,7 @@ def load_from_semseg_dir(
         desc="Loading semantic annotations",
     ) as pbar:
         for img_name, annot_name in pbar:
-            mask = cv2.imread(annot_name, -1)
+            mask = cv2.imread(str(annot_name), -1)
             annotation = Detections(
                 xyxy=np.array([[0, 0, mask.shape[1], mask.shape[0]]]),
                 mask=mask[np.newaxis, ...],
