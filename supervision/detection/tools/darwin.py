@@ -18,7 +18,6 @@ from supervision.utils.file import (
 )
 
 
-@dataclass
 class AnnotationType(Enum):
     """
     Enum for annotation types.
