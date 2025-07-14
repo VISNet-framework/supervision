@@ -134,6 +134,8 @@ def detections_to_coco_annotations(
                     "counts": mask_to_rle(mask=mask),
                     "size": list(mask.shape[:2]),
                 }
+            elif mask.sum() == 0:
+                segmentation = []
             else:
                 segmentation = [
                     list(
