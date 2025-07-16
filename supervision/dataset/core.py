@@ -854,6 +854,7 @@ class DetectionDataset(BaseDataset):
         images, annotations = load_coco_semseg_annotations(
             images_directory_path=images_directory_path,
             annotations_path=annotations_path,
+            id2label = {x: class_name for x, class_name in enumerate(classes)}
         )
         return DetectionDataset(classes=classes, images=images, annotations=annotations)
 
