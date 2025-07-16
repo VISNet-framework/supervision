@@ -7,10 +7,10 @@ import numpy as np
 import tqdm
 
 from supervision.detection.core import Detections, reorder_detections
-from supervision.detection.utils import masks_to_semantic_mask
 from supervision.detection.tools.transformers import (
     process_transformers_v5_panoptic_segmentation_result,
 )
+from supervision.detection.utils import masks_to_semantic_mask
 from supervision.utils.file import (
     find_valid_images_and_annotations,
     read_json_file,
@@ -287,7 +287,7 @@ def load_coco_semseg_annotations(
             otherwise, they are resolved relative to the annotations file.
         annotations_path (str): Path to the COCO semantic segmentation annotations
             JSON file.
-        id2label (dict | None, optional): Optional mapping from mask IDs to class labels.
+        id2label (dict | None, optional): Optional mapping from mask IDs to class label
             Used to decode segmentation masks into Detections objects.
 
     Returns:
@@ -319,7 +319,9 @@ def load_coco_semseg_annotations(
 
         mask_path = str((Path(annotations_path).parent / mask_name).resolve())
         mask = cv2.imread(mask_path, -1)
-        annotation = Detections(**process_transformers_v5_panoptic_segmentation_result(mask, id2label))
+        annotation = Detections(
+            **process_transformers_v5_panoptic_segmentation_result(mask, id2label)
+        )
 
         images.append(str(image_path))
         annotations[str(image_path)] = annotation
