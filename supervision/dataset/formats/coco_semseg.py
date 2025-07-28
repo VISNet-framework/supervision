@@ -10,7 +10,7 @@ from supervision.detection.core import Detections, reorder_detections
 from supervision.detection.tools.transformers import (
     process_transformers_v5_panoptic_segmentation_result,
 )
-from supervision.detection.utils import masks_to_semantic_mask
+from supervision.detection.utils.converters import masks_to_semantic_mask
 from supervision.utils.file import (
     find_valid_images_and_annotations,
     read_json_file,

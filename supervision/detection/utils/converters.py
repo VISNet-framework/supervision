@@ -270,3 +270,36 @@ def polygon_to_xyxy(polygon: np.ndarray) -> np.ndarray:
     x_min, y_min = np.min(polygon, axis=0)
     x_max, y_max = np.max(polygon, axis=0)
     return np.array([x_min, y_min, x_max, y_max])
+
+
+def masks_to_semantic_mask(
+    masks: np.ndarray,
+    class_ids: np.ndarray,
+    idx_skip_classes: list = [],
+):
+    """
+    Creates a semantic segmentation mask from instance masks and class IDs.
+
+    Args:
+        masks (np.ndarray): Array of instance masks, shape (N, H, W) or (H, W).
+        class_ids (np.ndarray): Array of class IDs for each mask, shape (N,).
+        idx_skip_classes (list, optional): List of class IDs to skip. Defaults to [].
+
+    Returns:
+        np.ndarray: Semantic segmentation mask as a uint8 numpy array.
+    """
+    if len(masks.shape) == 3:
+        _, h, w = masks.shape
+    else:
+        h, w = masks.shape
+
+    mask = np.zeros((h, w), dtype=np.uint8)
+    # temp_annotation.mask is N x image_height x image_width array with zero
+    # or ones, therefore extract class_id
+    for idx, instance_mask in enumerate(masks):
+        class_id = class_ids[idx]
+        ## skip classes if exist
+        if class_id in idx_skip_classes:
+            continue
+        mask[np.where(instance_mask)] = class_id
+    return mask.astype(np.uint8)

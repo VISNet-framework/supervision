@@ -3,7 +3,7 @@ import pytest
 from test_utils import mock_detections
 
 from supervision.detection.core import reorder_detections
-from supervision.detection.utils import masks_to_semantic_mask
+from supervision.detection.utils.converters import masks_to_semantic_mask
 from supervision.utils.image import advanced_crop_bbox
 
 dummy_mask = np.zeros([100, 100], np.uint8)

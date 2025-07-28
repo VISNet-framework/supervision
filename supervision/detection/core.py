@@ -12,11 +12,6 @@ from supervision.config import (
     CLASS_NAME_DATA_FIELD,
     ORIENTED_BOX_COORDINATES,
 )
-from supervision.detection.overlap_filter import (
-    box_non_max_merge,
-    box_non_max_suppression,
-    mask_non_max_suppression,
-)
 from supervision.detection.tools.darwin import (
     darwin_annotations_to_detections_dict,
 )
