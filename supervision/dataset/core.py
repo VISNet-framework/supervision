@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import os
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
 from dataclasses import dataclass
 from itertools import chain
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional, Tuple, Union
 
 import cv2
 import numpy as np
@@ -45,7 +45,7 @@ from supervision.dataset.utils import (
     train_test_split,
 )
 from supervision.detection.core import Detections
-from supervision.utils.internal import deprecated, warn_deprecated
+from supervision.utils.internal import warn_deprecated
 from supervision.utils.iterables import find_duplicates
 
 
@@ -58,9 +58,9 @@ class BaseDataset(ABC):
     def split(
         self,
         split_ratio: float = 0.8,
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
         shuffle: bool = True,
-    ) -> Tuple[BaseDataset, BaseDataset]:
+    ) -> tuple[BaseDataset, BaseDataset]:
         pass
 
 
@@ -84,9 +84,9 @@ class DetectionDataset(BaseDataset):
 
     def __init__(
         self,
-        classes: List[str],
-        images: Union[List[str], Dict[str, np.ndarray]],
-        annotations: Dict[str, Detections],
+        classes: list[str],
+        images: list[str] | dict[str, np.ndarray],
+        annotations: dict[str, Detections],
     ) -> None:
         self.classes = classes
 
@@ -99,40 +99,7 @@ class DetectionDataset(BaseDataset):
         # Eliminate duplicates while preserving order
         self.image_paths = list(dict.fromkeys(images))
 
-        self._images_in_memory: Dict[str, np.ndarray] = {}
-        if isinstance(images, dict):
-            self._images_in_memory = images
-            warn_deprecated(
-                "Passing a `Dict[str, np.ndarray]` into `DetectionDataset` is "
-                "deprecated and will be removed in `supervision-0.26.0`. Use "
-                "a list of paths `List[str]` instead."
-            )
-            # TODO: when supervision-0.26.0 is released, and Dict[str, np.ndarray]
-            #       for images is no longer supported, also simplify the rest of
-            #       the code. E.g. list(images) is no longer needed, and merge can
-            #       be simplified.
-
-    @property
-    @deprecated(
-        "`DetectionDataset.images` property is deprecated and will be removed in "
-        "`supervision-0.26.0`. Iterate with `for path, image, annotation in dataset:` "
-        "instead."
-    )
-    def images(self) -> Dict[str, np.ndarray]:
-        """
-        Load all images to memory and return them as a dictionary.
-
-        !!! warning
-
-            Only use this when you need all images at once.
-            It is much more memory-efficient to initialize dataset with
-            image paths and use `for path, image, annotation in dataset:`.
-        """
-        if self._images_in_memory:
-            return self._images_in_memory
-
-        images = {image_path: cv2.imread(image_path) for image_path in self.image_paths}
-        return images
+        self._images_in_memory: dict[str, np.ndarray] = {}
 
     def _get_image(self, image_path: str) -> np.ndarray:
         """Assumes that image is in dataset"""
@@ -143,7 +110,7 @@ class DetectionDataset(BaseDataset):
     def __len__(self) -> int:
         return len(self._images_in_memory) or len(self.image_paths)
 
-    def __getitem__(self, i: int) -> Tuple[str, np.ndarray, Detections]:
+    def __getitem__(self, i: int) -> tuple[str, np.ndarray, Detections]:
         """
         Returns:
             Tuple[str, np.ndarray, Detections]: The image path, image data,
@@ -154,7 +121,7 @@ class DetectionDataset(BaseDataset):
         annotation = self.annotations[image_path]
         return image_path, image, annotation
 
-    def __iter__(self) -> Iterator[Tuple[str, np.ndarray, Detections]]:
+    def __iter__(self) -> Iterator[tuple[str, np.ndarray, Detections]]:
         """
         Iterate over the images and annotations in the dataset.
 
@@ -192,9 +159,9 @@ class DetectionDataset(BaseDataset):
     def split(
         self,
         split_ratio: float = 0.8,
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
         shuffle: bool = True,
-    ) -> Tuple[DetectionDataset, DetectionDataset]:
+    ) -> tuple[DetectionDataset, DetectionDataset]:
         """
         Splits the dataset into two parts (training and testing)
             using the provided split_ratio.
@@ -228,8 +195,8 @@ class DetectionDataset(BaseDataset):
             shuffle=shuffle,
         )
 
-        train_input: Union[List[str], Dict[str, np.ndarray]]
-        test_input: Union[List[str], Dict[str, np.ndarray]]
+        train_input: list[str] | dict[str, np.ndarray]
+        test_input: list[str] | dict[str, np.ndarray]
         if self._images_in_memory:
             train_input = {path: self._images_in_memory[path] for path in train_paths}
             test_input = {path: self._images_in_memory[path] for path in test_paths}
@@ -252,7 +219,7 @@ class DetectionDataset(BaseDataset):
         return train_dataset, test_dataset
 
     @classmethod
-    def merge(cls, dataset_list: List[DetectionDataset]) -> DetectionDataset:
+    def merge(cls, dataset_list: list[DetectionDataset]) -> DetectionDataset:
         """
         Merge a list of `DetectionDataset` objects into a single
             `DetectionDataset` object.
@@ -454,8 +421,8 @@ class DetectionDataset(BaseDataset):
 
     def as_pascal_voc(
         self,
-        images_directory_path: Optional[str] = None,
-        annotations_directory_path: Optional[str] = None,
+        images_directory_path: str | None = None,
+        annotations_directory_path: str | None = None,
         min_image_area_percentage: float = 0.0,
         max_image_area_percentage: float = 1.0,
         approximation_percentage: float = 0.0,
@@ -628,9 +595,9 @@ class DetectionDataset(BaseDataset):
 
     def as_yolo(
         self,
-        images_directory_path: Optional[str] = None,
-        annotations_directory_path: Optional[str] = None,
-        data_yaml_path: Optional[str] = None,
+        images_directory_path: str | None = None,
+        annotations_directory_path: str | None = None,
+        data_yaml_path: str | None = None,
         min_image_area_percentage: float = 0.0,
         max_image_area_percentage: float = 1.0,
         approximation_percentage: float = 0.0,
@@ -695,7 +662,6 @@ class DetectionDataset(BaseDataset):
             force_masks (bool): If True,
                 forces masks to be loaded for all annotations,
                 regardless of whether they are present.
-
         Returns:
             DetectionDataset: A DetectionDataset instance containing
                 the loaded images and annotations.
@@ -730,8 +696,8 @@ class DetectionDataset(BaseDataset):
 
     def as_coco(
         self,
-        images_directory_path: Optional[str] = None,
-        annotations_path: Optional[str] = None,
+        images_directory_path: str | None = None,
+        annotations_path: str | None = None,
         min_image_area_percentage: float = 0.0,
         max_image_area_percentage: float = 1.0,
         approximation_percentage: float = 0.0,
@@ -854,7 +820,7 @@ class DetectionDataset(BaseDataset):
         images, annotations = load_coco_semseg_annotations(
             images_directory_path=images_directory_path,
             annotations_path=annotations_path,
-            id2label = {x: class_name for x, class_name in enumerate(classes)}
+            id2label={x: class_name for x, class_name in enumerate(classes)},
         )
         return DetectionDataset(classes=classes, images=images, annotations=annotations)
 
@@ -897,9 +863,9 @@ class ClassificationDataset(BaseDataset):
 
     def __init__(
         self,
-        classes: List[str],
-        images: Union[List[str], Dict[str, np.ndarray]],
-        annotations: Dict[str, Classifications],
+        classes: list[str],
+        images: list[str] | dict[str, np.ndarray],
+        annotations: dict[str, Classifications],
     ) -> None:
         self.classes = classes
 
@@ -912,7 +878,7 @@ class ClassificationDataset(BaseDataset):
         # Eliminate duplicates while preserving order
         self.image_paths = list(dict.fromkeys(images))
 
-        self._images_in_memory: Dict[str, np.ndarray] = {}
+        self._images_in_memory: dict[str, np.ndarray] = {}
         if isinstance(images, dict):
             self._images_in_memory = images
             warn_deprecated(
@@ -930,7 +896,7 @@ class ClassificationDataset(BaseDataset):
     def __len__(self) -> int:
         return len(self._images_in_memory) or len(self.image_paths)
 
-    def __getitem__(self, i: int) -> Tuple[str, np.ndarray, Classifications]:
+    def __getitem__(self, i: int) -> tuple[str, np.ndarray, Classifications]:
         """
         Returns:
             Tuple[str, np.ndarray, Classifications]: The image path, image data,
@@ -941,7 +907,7 @@ class ClassificationDataset(BaseDataset):
         annotation = self.annotations[image_path]
         return image_path, image, annotation
 
-    def __iter__(self) -> Iterator[Tuple[str, np.ndarray, Classifications]]:
+    def __iter__(self) -> Iterator[tuple[str, np.ndarray, Classifications]]:
         """
         Iterate over the images and annotations in the dataset.
 
@@ -979,9 +945,9 @@ class ClassificationDataset(BaseDataset):
     def split(
         self,
         split_ratio: float = 0.8,
-        random_state: Optional[int] = None,
+        random_state: int | None = None,
         shuffle: bool = True,
-    ) -> Tuple[ClassificationDataset, ClassificationDataset]:
+    ) -> tuple[ClassificationDataset, ClassificationDataset]:
         """
         Splits the dataset into two parts (training and testing)
             using the provided split_ratio.
@@ -1014,8 +980,8 @@ class ClassificationDataset(BaseDataset):
             shuffle=shuffle,
         )
 
-        train_input: Union[List[str], Dict[str, np.ndarray]]
-        test_input: Union[List[str], Dict[str, np.ndarray]]
+        train_input: list[str] | dict[str, np.ndarray]
+        test_input: list[str] | dict[str, np.ndarray]
         if self._images_in_memory:
             train_input = {path: self._images_in_memory[path] for path in train_paths}
             test_input = {path: self._images_in_memory[path] for path in test_paths}
