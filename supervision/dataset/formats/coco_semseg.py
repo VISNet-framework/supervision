@@ -1,6 +1,5 @@
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Tuple
 
 import cv2
 import numpy as np
@@ -17,9 +16,6 @@ from supervision.utils.file import (
     save_json_file,
 )
 from supervision.utils.image import advanced_crop_bbox
-
-if TYPE_CHECKING:
-    from supervision.dataset.core import DetectionDataset
 
 
 def semantic_mask_per_box(
@@ -42,7 +38,7 @@ def semantic_mask_per_box(
         images_directory_path (Path | None): Optional directory to save cropped images.
 
     Returns:
-        list: List of COCO-style semantic segmentation for each bounding box.
+        list: list of COCO-style semantic segmentation for each bounding box.
     """
     coco_semseg_per_box = []
     image_list, mask_list, id_list = advanced_crop_bbox(
@@ -71,7 +67,7 @@ def semantic_mask_per_box(
 
 
 def save_coco_semseg_annotations(
-    dataset: "DetectionDataset",
+    dataset,
     images_directory_path: str,
     annotation_path: str,
     semseg_per_box: bool = False,
@@ -89,13 +85,13 @@ def save_coco_semseg_annotations(
             file.
         semseg_per_box (bool, optional): If True, generate a separate mask per bounding
             box or object. Defaults to False.
-        segmentation_order (list[str], optional): List of class names specifying the
+        segmentation_order (list[str], optional): list of class names specifying the
             order of creating the mask. For example, if
             semgmentation_order=["leaf", "disease1", "disease2"], it will first create
             the mask of leaf, then overlay with disease.
         Might be useful in certain scenarios for example, if annotations are overlaying
             / not subtracted. Defaults to None.
-        skip_classes (list[str], optional): List of class names to skip when generating
+        skip_classes (list[str], optional): list of class names to skip when generating
             masks. Defaults to None.
 
     Returns:
@@ -232,7 +228,7 @@ def create_single_semseg(
 def load_from_semseg_dir(
     images_directory_path: str,
     annotations_path: str,
-) -> Tuple[List[str], Dict[str, Detections]]:
+) -> tuple[list[str], dict[str, Detections]]:
     """
     Loads images and their corresponding semantic segmentation masks.
 
@@ -241,7 +237,7 @@ def load_from_semseg_dir(
         annotations_path (str): Path to the directory containing annotation (mask) files
 
     Returns:
-        Tuple[List[str], Dict[str, Detections]]:
+        tuple[list[str], dict[str, Detections]]:
             A tuple containing a list of image file paths and a dictionary mapping image
             paths to Detections objects.
     """
@@ -277,7 +273,7 @@ def load_coco_semseg_annotations(
     images_directory_path: str | None,
     annotations_path: str,
     id2label: dict | None = None,
-) -> Tuple[List[str], Dict[str, Detections]]:
+) -> tuple[list[str], dict[str, Detections]]:
     """
     Loads COCO-style semantic segmentation annotations and corresponding images.
 
@@ -291,8 +287,8 @@ def load_coco_semseg_annotations(
             Used to decode segmentation masks into Detections objects.
 
     Returns:
-        Tuple[List[str], Dict[str, Detections]]:
-            - List of resolved image file paths.
+        tuple[list[str], dict[str, Detections]]:
+            - list of resolved image file paths.
             - Dictionary mapping image file paths to their corresponding
               Detections objects.
 
