@@ -1,7 +1,8 @@
+from __future__ import annotations
+
 import datetime
 import json
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
 
 import natsort
 import numpy as np
@@ -16,7 +17,7 @@ class NumpyJsonEncoder(json.JSONEncoder):
             return float(obj)
         if isinstance(obj, np.ndarray):
             return obj.tolist()
-        return super(NumpyJsonEncoder, self).default(obj)
+        return super().default(obj)
 
 
 class ExtendedJSONEncoder(json.JSONEncoder):
@@ -37,28 +38,28 @@ class ExtendedJSONEncoder(json.JSONEncoder):
 
 
 def list_files_with_extensions(
-    directory: Union[str, Path], extensions: Optional[List[str]] = None
-) -> List[Path]:
+    directory: str | Path, extensions: list[str] | None = None
+) -> list[Path]:
     """
-    List files in a directory with specified extensions or
+    list files in a directory with specified extensions or
         all files if no extensions are provided.
 
     Args:
         directory (Union[str, Path]): The directory path as a string or Path object.
-        extensions (Optional[List[str]]): A list of file extensions to filter.
+        extensions (Optional[list[str]]): A list of file extensions to filter.
             Default is None, which lists all files.
 
     Returns:
-        (List[Path]): A list of Path objects for the matching files.
+        (list[Path]): A list of Path objects for the matching files.
 
     Examples:
         ```python
         import supervision as sv
 
-        # List all files in the directory
+        # list all files in the directory
         files = sv.list_files_with_extensions(directory='my_directory')
 
-        # List only files with '.txt' and '.md' extensions
+        # list only files with '.txt' and '.md' extensions
         files = sv.list_files_with_extensions(
             directory='my_directory', extensions=['txt', 'md'])
         ```
@@ -77,19 +78,19 @@ def list_files_with_extensions(
 
 
 def list_files_with_extensions_recursively(
-    directory: Union[str, Path], extensions: Optional[List[str]] = None
-) -> List[Path]:
+    directory: str | Path, extensions: list[str] | None = None
+) -> list[Path]:
     """
-    List files in a directory and its subdirectories with specified extensions
+    list files in a directory and its subdirectories with specified extensions
         or all files if no extensions are provided.
 
     Args:
         directory (Union[str, Path]): The directory path as a string or Path object.
-        extensions (Optional[List[str]]): A list of file extensions to filter.
+        extensions (Optional[list[str]]): A list of file extensions to filter.
             Default is None, which lists all files.
 
     Returns:
-        (List[Path]): A list of Path objects for the matching files.
+        (list[Path]): A list of Path objects for the matching files.
     """
     directory = Path(directory)
     files_with_extensions = []
@@ -108,20 +109,20 @@ def find_valid_images_and_annotations(
     annotation_path: Path,
     images_extentions=["jpg", "jpeg", "png", "tiff", "tif"],
     annotation_extentions=["json"],
-) -> Tuple[List[Path], List[Path]]:
+) -> tuple[list[Path], list[Path]]:
     """
     Finds and matches valid image files and their corresponding annotation files
 
     Args:
         images_directory_path (Path): Path to the directory containing image files.
         annotation_path (Path): Path to the directory containing annotation files.
-        images_extentions (List[str], optional): List of valid image file extensions.
-        annotation_extentions (List[str], optional): List of valid annotation file ext.
+        images_extentions (list[str], optional): list of valid image file extensions.
+        annotation_extentions (list[str], optional): list of valid annotation file ext.
 
     Returns:
-        Tuple[List[Path], List[Path]]:
-            - List of image file paths that have corresponding annotation files.
-            - List of annotation file paths, sorted in natural order.
+        Tuple[list[Path], list[Path]]:
+            - list of image file paths that have corresponding annotation files.
+            - list of annotation file paths, sorted in natural order.
     """
 
     image_candidate_paths = list_files_with_extensions_recursively(
@@ -148,7 +149,7 @@ def find_valid_images_and_annotations(
     return image_paths, annotation_paths
 
 
-def read_txt_file(file_path: Union[str, Path], skip_empty: bool = False) -> List[str]:
+def read_txt_file(file_path: str | Path, skip_empty: bool = False) -> list[str]:
     """
     Read a text file and return a list of strings without newline characters.
     Optionally skip empty lines.
@@ -159,9 +160,9 @@ def read_txt_file(file_path: Union[str, Path], skip_empty: bool = False) -> List
             whitespace. Default is False.
 
     Returns:
-        List[str]: A list of strings representing the lines in the text file.
+        list[str]: A list of strings representing the lines in the text file.
     """
-    with open(str(file_path), "r") as file:
+    with open(str(file_path)) as file:
         if skip_empty:
             lines = [line.rstrip("\n") for line in file if line.strip()]
         else:
@@ -170,12 +171,12 @@ def read_txt_file(file_path: Union[str, Path], skip_empty: bool = False) -> List
     return lines
 
 
-def save_text_file(lines: List[str], file_path: Union[str, Path]) -> None:
+def save_text_file(lines: list[str], file_path: str | Path) -> None:
     """
     Write a list of strings to a text file, each string on a new line.
 
     Args:
-        lines (List[str]): The list of strings to be written to the file.
+        lines (list[str]): The list of strings to be written to the file.
         file_path (Union[str, Path]): The file path as a string or Path object.
     """
     with open(str(file_path), "w") as file:
@@ -183,7 +184,7 @@ def save_text_file(lines: List[str], file_path: Union[str, Path]) -> None:
             file.write(line + "\n")
 
 
-def read_json_file(file_path: Union[str, Path]) -> Dict:
+def read_json_file(file_path: str | Path) -> dict:
     """
     Read a json file and return a dict.
 
@@ -193,12 +194,12 @@ def read_json_file(file_path: Union[str, Path]) -> Dict:
     Returns:
         dict: A dict of annotations information
     """
-    with open(str(file_path), "r") as file:
+    with open(str(file_path)) as file:
         data = json.load(file)
     return data
 
 
-def save_json_file(data: dict, file_path: Union[str, Path], indent: int = 3) -> None:
+def save_json_file(data: dict, file_path: str | Path, indent: int = 3) -> None:
     """
     Write a dict to a json file.
 
@@ -211,7 +212,7 @@ def save_json_file(data: dict, file_path: Union[str, Path], indent: int = 3) -> 
         json.dump(data, fp, cls=NumpyJsonEncoder, indent=indent)
 
 
-def read_yaml_file(file_path: Union[str, Path]) -> Dict:
+def read_yaml_file(file_path: str | Path) -> dict:
     """
     Read a yaml file and return a dict.
 
@@ -221,12 +222,12 @@ def read_yaml_file(file_path: Union[str, Path]) -> Dict:
     Returns:
         dict: A dict of content information
     """
-    with open(str(file_path), "r") as file:
+    with open(str(file_path)) as file:
         data = yaml.safe_load(file)
     return data
 
 
-def save_yaml_file(data: dict, file_path: Union[str, Path]) -> None:
+def save_yaml_file(data: dict, file_path: str | Path) -> None:
     """
     Save a dict to a json file.
 

@@ -38,6 +38,7 @@ from supervision.dataset.core import (
     ClassificationDataset,
     DetectionDataset,
 )
+from supervision.dataset.formats.coco import get_coco_class_index_mapping
 from supervision.dataset.utils import mask_to_rle, rle_to_mask
 from supervision.detection.core import Detections
 from supervision.detection.line_zone import (
@@ -45,40 +46,53 @@ from supervision.detection.line_zone import (
     LineZoneAnnotator,
     LineZoneAnnotatorMulticlass,
 )
-from supervision.detection.overlap_filter import (
-    OverlapFilter,
-    box_non_max_merge,
-    box_non_max_suppression,
-    mask_non_max_suppression,
-)
 from supervision.detection.tools.csv_sink import CSVSink
 from supervision.detection.tools.inference_slicer import InferenceSlicer
 from supervision.detection.tools.json_sink import JSONSink
 from supervision.detection.tools.polygon_zone import PolygonZone, PolygonZoneAnnotator
 from supervision.detection.tools.smoother import DetectionsSmoother
-from supervision.detection.utils import (
-    box_iou_batch,
-    calculate_masks_centroids,
+from supervision.detection.utils.boxes import (
     clip_boxes,
-    contains_holes,
-    contains_multiple_segments,
-    filter_polygons_by_area,
-    mask_iou_batch,
+    denormalize_boxes,
+    move_boxes,
+    pad_boxes,
+    scale_boxes,
+)
+from supervision.detection.utils.converters import (
     mask_to_polygons,
     mask_to_xyxy,
-    move_boxes,
-    move_masks,
-    oriented_box_iou_batch,
-    pad_boxes,
     polygon_to_mask,
     polygon_to_xyxy,
-    scale_boxes,
     xcycwh_to_xyxy,
     xywh_to_xyxy,
     xyxy_to_polygons,
     xyxy_to_xcycarh,
     xyxy_to_xywh,
 )
+from supervision.detection.utils.iou_and_nms import (
+    OverlapFilter,
+    OverlapMetric,
+    box_iou,
+    box_iou_batch,
+    box_iou_batch_with_jaccard,
+    box_non_max_merge,
+    box_non_max_suppression,
+    mask_iou_batch,
+    mask_non_max_merge,
+    mask_non_max_suppression,
+    oriented_box_iou_batch,
+)
+from supervision.detection.utils.masks import (
+    calculate_masks_centroids,
+    contains_holes,
+    contains_multiple_segments,
+    move_masks,
+)
+from supervision.detection.utils.polygons import (
+    approximate_polygon,
+    filter_polygons_by_area,
+)
+from supervision.detection.utils.vlms import edit_distance, fuzzy_match_index
 from supervision.detection.vlm import LMM, VLM
 from supervision.draw.color import Color, ColorPalette
 from supervision.draw.utils import (
@@ -163,6 +177,7 @@ __all__ = [
     "MeanAveragePrecision",
     "OrientedBoxAnnotator",
     "OverlapFilter",
+    "OverlapMetric",
     "PercentageBarAnnotator",
     "PixelateAnnotator",
     "Point",
@@ -179,7 +194,10 @@ __all__ = [
     "VertexLabelAnnotator",
     "VideoInfo",
     "VideoSink",
+    "approximate_polygon",
+    "box_iou",
     "box_iou_batch",
+    "box_iou_batch_with_jaccard",
     "box_non_max_merge",
     "box_non_max_suppression",
     "calculate_masks_centroids",
@@ -198,12 +216,16 @@ __all__ = [
     "draw_polygon",
     "draw_rectangle",
     "draw_text",
+    "edit_distance",
     "filter_polygons_by_area",
+    "fuzzy_match_index",
+    "get_coco_class_index_mapping",
     "get_polygon_center",
     "get_video_frames_generator",
     "letterbox_image",
     "list_files_with_extensions",
     "mask_iou_batch",
+    "mask_non_max_merge",
     "mask_non_max_suppression",
     "mask_to_polygons",
     "mask_to_rle",
@@ -226,6 +248,6 @@ __all__ = [
     "xcycwh_to_xyxy",
     "xywh_to_xyxy",
     "xyxy_to_polygons",
-    "xyxy_to_xyah",
+    "xyxy_to_xcycarh",
     "xyxy_to_xywh",
 ]

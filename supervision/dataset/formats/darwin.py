@@ -1,7 +1,6 @@
 import os
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -19,9 +18,6 @@ from supervision.utils.file import (
     save_json_file,
 )
 
-if TYPE_CHECKING:
-    from supervision.dataset.core import DetectionDataset
-
 
 def load_darwin_annotations(
     images_directory_path: str | Path,
@@ -29,8 +25,8 @@ def load_darwin_annotations(
     classes: list[str],
     force_masks: bool = False,
     force_track_ids: bool = False,
-    with_ellipse_as: Optional[bool] = None,
-) -> Tuple[List[str], List[str], Dict[str, Detections]]:
+    with_ellipse_as: bool | None = None,
+) -> tuple[list[str], list[str], dict[str, Detections]]:
     """
     Load Darwin annotations from a directory.
 
@@ -38,7 +34,7 @@ def load_darwin_annotations(
         images_directory_path (str | Path): Path to the directory containing images.
         annotation_directory_path (str | Path):
             Path to the directory containing darwin annotations.
-        classes (list[str]): List of class names.
+        classes (list[str]): list of class names.
         force_masks (bool): Whether to force loading masks. Default is False.
         with_ellipse_as (str): How to convert ellipse. Options are
             "oriented_bounding_box", "mask", or None to ignore.
@@ -77,7 +73,7 @@ def load_darwin_annotations(
 
 
 def save_darwin_annotations(
-    dataset: "DetectionDataset",
+    dataset,
     annotation_directory_path: str | Path,
     darwin_dataset_name: str,
     classes: list[str],
@@ -95,9 +91,9 @@ def save_darwin_annotations(
         annotation_directory_path (str):
             Path to the directory where annotations will be saved.
         darwin_dataset_name (str): Name of the Darwin dataset.
-        classes (list[str]): List of class names.
+        classes (list[str]): list of class names.
         darwin_folder (str): Path to the Darwin folder. Default is empty string.
-        tags (list): List of tags to add to the annotations. Default is empty list.
+        tags (list): list of tags to add to the annotations. Default is empty list.
         min_image_area_percentage (float):
             Minimum area percentage polygon wrt image. Default is 0.0.
         max_image_area_percentage (float):
@@ -152,10 +148,10 @@ def detections_to_darwin_dict(
         detections (Detections): Detections object containing bounding boxes, masks, etc
         image_shape (tuple[int, int]): Shape of the image (height, width).
         img_filename (Path): Filename of the image.
-        class_names (list[str]): List of class names.
+        class_names (list[str]): list of class names.
         darwin_dataset_name (str): Name of the Darwin dataset.
         darwin_folder (Path): Path to the Darwin folder. Default is empty Path.
-        tags (list): List of tags to add to the annotations. Default is empty list.
+        tags (list): list of tags to add to the annotations. Default is empty list.
         min_image_area_percentage (float): Min polygon area wrt image.
         max_image_area_percentage (float): Max polygon area wrt image.
         approximation_percentage (float): Percentage of points to remove
@@ -329,7 +325,7 @@ def _detection_xyxyxyxy_to_darwin_ellipse(xyxyxyxy):
     Assumes the points are ordered as in darwin_ellipse_to_xyxyxyxy.
 
     Args:
-        xyxyxyxy (list or np.ndarray): List of 4 [x, y] points.
+        xyxyxyxy (list or np.ndarray): list of 4 [x, y] points.
 
     Returns:
         dict: {
