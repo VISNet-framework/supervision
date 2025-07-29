@@ -137,7 +137,7 @@ class Detections:
             `(n,)` containing the class ids of the detections.
         tracker_id (Optional[np.ndarray]): An array of shape
             `(n,)` containing the tracker ids of the detections.
-        data (Dict[str, Union[np.ndarray, List]]): A dictionary containing additional
+        data (Dict[str, Union[np.ndarray, list]]): A dictionary containing additional
             data where each key is a string representing the data type, and the value
             is either a NumPy array or a list of corresponding data.
         metadata (Dict[str, Any]): A dictionary containing collection-level metadata
@@ -214,7 +214,7 @@ class Detections:
         json_name: str,
         with_masks: bool,
         classes: list[str],
-        with_ellipse_as: Optional[str] = None,
+        with_ellipse_as: str | None = None,
         with_track_ids: bool = False,
         skip_unknown_classes: bool = True,
         metadata: dict = {},
@@ -678,7 +678,7 @@ class Detections:
         inference result.
 
         Args:
-            sam_result (List[dict]): The output Results instance from SAM
+            sam_result (list[dict]): The output Results instance from SAM
 
         Returns:
             Detections: A new Detections object.
@@ -807,7 +807,7 @@ class Detections:
             inference result.
 
         Args:
-            paddledet_result (List[dict]): The output Results instance from PaddleDet
+            paddledet_result (list[dict]): The output Results instance from PaddleDet
 
         Returns:
             Detections: A new Detections object.
@@ -1635,7 +1635,7 @@ class Detections:
         Results are placed in the `data` field with the key `"class_name"`.
 
         Args:
-            easyocr_results (List): The output Results instance from EasyOCR
+            easyocr_results (list): The output Results instance from EasyOCR
 
         Returns:
             Detections: A new Detections object.
@@ -1778,7 +1778,7 @@ class Detections:
             When merging, empty `Detections` objects are ignored.
 
         Args:
-            detections_list (List[Detections]): A list of Detections objects to merge.
+            detections_list (list[Detections]): A list of Detections objects to merge.
 
         Returns:
             (Detections): A single Detections object containing
@@ -1943,7 +1943,7 @@ class Detections:
         the data dictionary.
 
         Args:
-            index (Union[int, slice, List[int], np.ndarray, str]): The index, indices,
+            index (Union[int, slice, list[int], np.ndarray, str]): The index, indices,
                 or key to access a subset of the Detections or an item from the data.
 
         Returns:
@@ -1987,7 +1987,7 @@ class Detections:
 
         Args:
             key (str): The key in the data dictionary to set.
-            value (Union[np.ndarray, List]): The value to set for the key.
+            value (Union[np.ndarray, list]): The value to set for the key.
 
         Example:
             ```python
