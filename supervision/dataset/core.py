@@ -319,7 +319,7 @@ class DetectionDataset(BaseDataset):
         classes: list,
         force_masks: bool = False,
         force_track_ids: bool = False,
-        with_ellipse_as: Optional[str] = None,
+        with_ellipse_as: str | None = None,
     ) -> DetectionDataset:
         classes, images, annotations = load_darwin_annotations(
             images_directory_path=images_directory_path,
@@ -334,18 +334,18 @@ class DetectionDataset(BaseDataset):
     def as_darwin(
         self,
         darwin_dataset_name: str,
-        images_directory_path: Optional[str] = None,
-        annotations_directory_path: Optional[str] = None,
+        images_directory_path: str | None = None,
+        annotations_directory_path: str | None = None,
     ) -> None:
         """
         Exports the dataset to darwinv7 format. This method saves the images
         and their corresponding annotations in darwin format.
 
         Args:
-            images_directory_path (Optional[str]): The path to the directory
+            images_directory_path (str | None): The path to the directory
                 where the images should be saved.
                 If not provided, images will not be saved.
-            annotations_directory_path (Optional[str]): The path to the directory
+            annotations_directory_path (str | None): The path to the directory
                 where the annotations in darwin format should be saved.
                 If not provided, annotations will not be saved.
         """
@@ -392,18 +392,18 @@ class DetectionDataset(BaseDataset):
 
     def as_dotav2(
         self,
-        images_directory_path: Optional[str] = None,
-        annotations_directory_path: Optional[str] = None,
+        images_directory_path: str | None = None,
+        annotations_directory_path: str | None = None,
     ) -> None:
         """
         Exports the dataset to DOTAv2 format. This method saves the images
         and their corresponding annotations in DOTAv2 format.
 
         Args:
-            images_directory_path (Optional[str]): The path to the directory
+            images_directory_path (str | None): The path to the directory
                 where the images should be saved.
                 If not provided, images will not be saved.
-            annotations_directory_path (Optional[str]): The path to the directory
+            annotations_directory_path (str | None): The path to the directory
                 where the annotations in DOTAv2 format should be saved.
                 If not provided, annotations will not be saved.
         """
@@ -432,10 +432,10 @@ class DetectionDataset(BaseDataset):
         and their corresponding annotations in PASCAL VOC format.
 
         Args:
-            images_directory_path (Optional[str]): The path to the directory
+            images_directory_path (str | None): The path to the directory
                 where the images should be saved.
                 If not provided, images will not be saved.
-            annotations_directory_path (Optional[str]): The path to
+            annotations_directory_path (str | None): The path to
                 the directory where the annotations in PASCAL VOC format should be
                 saved. If not provided, annotations will not be saved.
             min_image_area_percentage (float): The minimum percentage of
@@ -607,14 +607,14 @@ class DetectionDataset(BaseDataset):
         images and their corresponding annotations in YOLO format.
 
         Args:
-            images_directory_path (Optional[str]): The path to the
+            images_directory_path (str | None): The path to the
                 directory where the images should be saved.
                 If not provided, images will not be saved.
-            annotations_directory_path (Optional[str]): The path to the
+            annotations_directory_path (str | None): The path to the
                 directory where the annotations in
                 YOLO format should be saved. If not provided,
                 annotations will not be saved.
-            data_yaml_path (Optional[str]): The path where the data.yaml
+            data_yaml_path (str | None): The path where the data.yaml
                 file should be saved.
                 If not provided, the file will not be saved.
             min_image_area_percentage (float): The minimum percentage of
@@ -721,10 +721,10 @@ class DetectionDataset(BaseDataset):
             standards.
 
         Args:
-            images_directory_path (Optional[str]): The path to the directory
+            images_directory_path (str | None): The path to the directory
                 where the images should be saved.
                 If not provided, images will not be saved.
-            annotations_path (Optional[str]): The path to COCO annotation file.
+            annotations_path (str | None): The path to COCO annotation file.
             min_image_area_percentage (float): The minimum percentage of
                 detection area relative to
                 the image area for a detection to be included.
@@ -753,8 +753,8 @@ class DetectionDataset(BaseDataset):
 
     def as_coco_semseg(
         self,
-        images_directory_path: Optional[str] = None,
-        annotations_path: Optional[str] = None,
+        images_directory_path: str | None = None,
+        annotations_path: str | None = None,
         semseg_per_box: bool = False,
         segmentation_order: list[str] | None = None,
         skip_classes: list[str] | None = None,
@@ -763,9 +763,9 @@ class DetectionDataset(BaseDataset):
         Exports the dataset in COCO semantic segmentation format.
 
         Args:
-            images_directory_path (Optional[str]): Path to save dataset images.
+            images_directory_path (str | None): Path to save dataset images.
                 If None, images are not saved.
-            annotations_path (Optional[str]): Path to save COCO semantic segmentation
+            annotations_path (str | None): Path to save COCO semantic segmentation
                 annotations, for example: /path/train.json. If None, annotations are
                 not saved.
             semseg_per_box (bool): If True, generates a separate segmentation mask
