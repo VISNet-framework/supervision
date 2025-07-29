@@ -4,7 +4,6 @@ import math
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from functools import partial
-from typing import Optional
 
 import cv2
 import numpy as np
@@ -57,9 +56,9 @@ class SingleDetection:
 
     xyxy: list[float]
     class_id: int
-    mask: Optional[npt.NDArray[np.uint8]] = None
-    tracker_id: Optional[int] = None
-    data: Optional[dict] = field(default_factory=dict)
+    mask: npt.NDArray[np.uint8] | None = None
+    tracker_id: int | None = None
+    data: dict | None = field(default_factory=dict)
 
 
 def merge_detections_to_dict(dets: list[SingleDetection]) -> dict:
@@ -354,7 +353,7 @@ def darwin_annotations_to_detections_dict(
     json_name: str,
     with_masks: bool,
     classes: list[str],
-    with_ellipse_as: Optional[str] = None,
+    with_ellipse_as: str | None = None,
     with_track_ids: bool = False,
     skip_unknown_classes: bool = True,
     metadata: dict = {},

@@ -3,7 +3,6 @@ from __future__ import annotations
 import datetime
 import json
 from pathlib import Path
-from typing import List, Optional, Tuple, Union
 
 import natsort
 import numpy as np
@@ -42,25 +41,25 @@ def list_files_with_extensions(
     directory: str | Path, extensions: list[str] | None = None
 ) -> list[Path]:
     """
-    List files in a directory with specified extensions or
+    list files in a directory with specified extensions or
         all files if no extensions are provided.
 
     Args:
         directory (Union[str, Path]): The directory path as a string or Path object.
-        extensions (Optional[List[str]]): A list of file extensions to filter.
+        extensions (Optional[list[str]]): A list of file extensions to filter.
             Default is None, which lists all files.
 
     Returns:
-        (List[Path]): A list of Path objects for the matching files.
+        (list[Path]): A list of Path objects for the matching files.
 
     Examples:
         ```python
         import supervision as sv
 
-        # List all files in the directory
+        # list all files in the directory
         files = sv.list_files_with_extensions(directory='my_directory')
 
-        # List only files with '.txt' and '.md' extensions
+        # list only files with '.txt' and '.md' extensions
         files = sv.list_files_with_extensions(
             directory='my_directory', extensions=['txt', 'md'])
         ```
@@ -79,19 +78,19 @@ def list_files_with_extensions(
 
 
 def list_files_with_extensions_recursively(
-    directory: Union[str, Path], extensions: Optional[List[str]] = None
-) -> List[Path]:
+    directory: str | Path, extensions: list[str] | None = None
+) -> list[Path]:
     """
-    List files in a directory and its subdirectories with specified extensions
+    list files in a directory and its subdirectories with specified extensions
         or all files if no extensions are provided.
 
     Args:
         directory (Union[str, Path]): The directory path as a string or Path object.
-        extensions (Optional[List[str]]): A list of file extensions to filter.
+        extensions (Optional[list[str]]): A list of file extensions to filter.
             Default is None, which lists all files.
 
     Returns:
-        (List[Path]): A list of Path objects for the matching files.
+        (list[Path]): A list of Path objects for the matching files.
     """
     directory = Path(directory)
     files_with_extensions = []
@@ -110,20 +109,20 @@ def find_valid_images_and_annotations(
     annotation_path: Path,
     images_extentions=["jpg", "jpeg", "png", "tiff", "tif"],
     annotation_extentions=["json"],
-) -> Tuple[List[Path], List[Path]]:
+) -> tuple[list[Path], list[Path]]:
     """
     Finds and matches valid image files and their corresponding annotation files
 
     Args:
         images_directory_path (Path): Path to the directory containing image files.
         annotation_path (Path): Path to the directory containing annotation files.
-        images_extentions (List[str], optional): List of valid image file extensions.
-        annotation_extentions (List[str], optional): List of valid annotation file ext.
+        images_extentions (list[str], optional): list of valid image file extensions.
+        annotation_extentions (list[str], optional): list of valid annotation file ext.
 
     Returns:
-        Tuple[List[Path], List[Path]]:
-            - List of image file paths that have corresponding annotation files.
-            - List of annotation file paths, sorted in natural order.
+        Tuple[list[Path], list[Path]]:
+            - list of image file paths that have corresponding annotation files.
+            - list of annotation file paths, sorted in natural order.
     """
 
     image_candidate_paths = list_files_with_extensions_recursively(
@@ -161,7 +160,7 @@ def read_txt_file(file_path: str | Path, skip_empty: bool = False) -> list[str]:
             whitespace. Default is False.
 
     Returns:
-        List[str]: A list of strings representing the lines in the text file.
+        list[str]: A list of strings representing the lines in the text file.
     """
     with open(str(file_path)) as file:
         if skip_empty:
@@ -177,7 +176,7 @@ def save_text_file(lines: list[str], file_path: str | Path) -> None:
     Write a list of strings to a text file, each string on a new line.
 
     Args:
-        lines (List[str]): The list of strings to be written to the file.
+        lines (list[str]): The list of strings to be written to the file.
         file_path (Union[str, Path]): The file path as a string or Path object.
     """
     with open(str(file_path), "w") as file:
