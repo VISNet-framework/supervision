@@ -1,5 +1,4 @@
 from pathlib import Path
-from typing import TYPE_CHECKING, List, Tuple
 
 import numpy as np
 from natsort import natsorted
@@ -12,9 +11,6 @@ from supervision.utils.file import (
     save_text_file,
 )
 
-if TYPE_CHECKING:
-    from supervision.dataset.core import DetectionDataset
-
 """
 DOTAV2 format for oriented bounding boxes
 """
@@ -22,14 +18,14 @@ DOTAV2 format for oriented bounding boxes
 
 def detections_to_dota_annotations(
     detections: Detections,
-    classes: List[str],
+    classes: list[str],
 ) -> list[str]:
     """
     Convert detections to DOTAV2 annotations format.
 
     Args:
         detections (Detections): Detections object containing detection data.
-        classes (List[str]): List of class names.
+        classes (list[str]): list of class names.
     Returns:
         list[str]: lines of DOTAV2 format to write to .txt file.
     """
@@ -49,7 +45,7 @@ def detections_to_dota_annotations(
 
 
 def save_dotav2_annotations(
-    dataset: "DetectionDataset",
+    dataset,
     annotations_directory_path: Path,
 ) -> None:
     """
@@ -90,7 +86,7 @@ def dota_annotation_to_detections(
 
     Args:
         annotation_path (Path): Path to the annotation file.
-        classes (list[str]): List of class names.
+        classes (list[str]): list of class names.
 
     Returns:
         Detections: Detections object containing the loaded annotations.
@@ -144,7 +140,7 @@ def dota_annotation_to_detections(
 
 def find_valid_images_and_annotations(
     images_directory_path: Path, annotation_path: Path
-) -> Tuple[List[Path], List[Path]]:
+) -> tuple[list[Path], list[Path]]:
     """
     Find valid images and dotav2 annotations in the given directories.
     """
