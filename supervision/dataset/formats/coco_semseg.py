@@ -308,7 +308,7 @@ def load_coco_semseg_annotations(
 
         image_path = (Path(annotations_path).parent / image_name).resolve()
         if images_directory_path is not None:
-            image_path = (images_directory_path / image_name).resolve()
+            image_path = (Path(images_directory_path) / image_name).resolve()
 
         if not image_path.exists():
             print(f"Image file not found when loading coco_semseg: {image_path}")
