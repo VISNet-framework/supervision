@@ -142,6 +142,15 @@ def save_coco_semseg_annotations(
             # reorder annotations
             annotation = reorder_detections(annotation, segmentation_order)
 
+            ## it might be possible that an image only consist of background class
+            if len(annotation.xyxy) == 0 and annotation.mask is None:
+                annotation.mask = np.zeros(bgr_img.shape[:2], dtype=np.bool_)[None, ...]
+                annotation.class_id = np.array([0])
+                print(
+                    f"WARNING darwin annotation is empty adding "
+                    f"{image_path} as background"
+                )
+
             # create a mask
             mask = masks_to_semantic_mask(
                 masks=annotation.mask,
@@ -308,7 +317,7 @@ def load_coco_semseg_annotations(
 
         image_path = (Path(annotations_path).parent / image_name).resolve()
         if images_directory_path is not None:
-            image_path = (images_directory_path / image_name).resolve()
+            image_path = (Path(images_directory_path) / image_name).resolve()
 
         if not image_path.exists():
             print(f"Image file not found when loading coco_semseg: {image_path}")
