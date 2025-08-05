@@ -826,16 +826,16 @@ class DetectionDataset(BaseDataset):
 
     def from_semseg_dir(
         images_directory_path: str,
-        annotations_path: str,
         classes: list[str],
+        annotations_path: str,
     ):
         """
         Creates a DetectionDataset instance from a semantic segmentation directory.
 
         Args:
             images_directory_path (str): Path to the directory containing images.
-            annotations_path (str): Path to the directory containing annotation files.
             classes (list[str]): List of class names.
+            annotations_path (str): Path to the directory containing annotation files.
 
         Returns:
             DetectionDataset: An instance of DetectionDataset.
@@ -843,6 +843,7 @@ class DetectionDataset(BaseDataset):
         images, annotations = load_from_semseg_dir(
             images_directory_path=images_directory_path,
             annotations_path=annotations_path,
+            id2label={x: class_name for x, class_name in enumerate(classes)},
         )
         return DetectionDataset(classes=classes, images=images, annotations=annotations)
 

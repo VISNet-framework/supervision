@@ -228,6 +228,7 @@ def create_single_semseg(
 def load_from_semseg_dir(
     images_directory_path: str,
     annotations_path: str,
+    id2label: dict | None = None,
 ) -> tuple[list[str], dict[str, Detections]]:
     """
     Loads images and their corresponding semantic segmentation masks.
@@ -235,7 +236,8 @@ def load_from_semseg_dir(
     Args:
         images_directory_path (str): Path to the directory containing image files.
         annotations_path (str): Path to the directory containing annotation (mask) files
-
+        id2label (dict | None, optional): Optional mapping from mask IDs to class label
+            Used to decode segmentation masks into Detections objects.
     Returns:
         tuple[list[str], dict[str, Detections]]:
             A tuple containing a list of image file paths and a dictionary mapping image
@@ -260,8 +262,7 @@ def load_from_semseg_dir(
         for img_name, annot_name in pbar:
             mask = cv2.imread(str(annot_name), -1)
             annotation = Detections(
-                xyxy=np.array([[0, 0, mask.shape[1], mask.shape[0]]]),
-                mask=mask[np.newaxis, ...],
+                **process_transformers_v5_panoptic_segmentation_result(mask, id2label)
             )
             images.append(str(img_name))
             annotations[str(img_name)] = annotation
