@@ -826,6 +826,7 @@ class DetectionDataset(BaseDataset):
 
     @classmethod
     def from_semseg_dir(
+        cls,
         images_directory_path: str,
         classes: list[str],
         annotations_path: str,
