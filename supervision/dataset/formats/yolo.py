@@ -70,9 +70,29 @@ def _extract_class_names(file_path: str) -> list[str]:
     return names
 
 
-def _image_name_to_annotation_name(image_name: str) -> str:
-    base_name, _ = os.path.splitext(image_name)
-    return base_name + ".txt"
+def _relative_image_path(image_path: str, image_directory_name="images"):
+    """
+    Returns the relative path starting from a directory name.
+
+    Default image base directory is "images"
+    """
+    images_dirname = os.path.sep + image_directory_name + os.path.sep
+    relative_path_image = image_path.split(images_dirname)[-1]
+    return relative_path_image
+
+
+def _image_path_to_annotation_path(image_path: str) -> str:
+    """
+    Returns the yolo-style annotation path.
+
+    Note that ultralytics finds annotations by replacing "/images/" with "/annotations/"
+    For nested image directories, the annotations should be stored in a nested
+    directory as well.
+    """
+    relative_path_image = _relative_image_path(image_path)
+    base_name, _ = os.path.splitext(relative_path_image)
+    relative_path_annotation = base_name + ".txt"
+    return relative_path_annotation
 
 
 def yolo_annotations_to_detections(
@@ -270,11 +290,13 @@ def save_yolo_annotations(
 ) -> None:
     Path(annotations_directory_path).mkdir(parents=True, exist_ok=True)
     for image_path, image, annotation in dataset:
-        image_name = Path(image_path).name
-        yolo_annotations_name = _image_name_to_annotation_name(image_name=image_name)
-        yolo_annotations_path = os.path.join(
-            annotations_directory_path, yolo_annotations_name
+        yolo_annotations_path_rel = _image_path_to_annotation_path(
+            image_path=image_path
         )
+        yolo_annotations_path_abs = (
+            Path(annotations_directory_path) / yolo_annotations_path_rel
+        )
+        yolo_annotations_path_abs.parent.mkdir(exist_ok=True, parents=True)
         lines = detections_to_yolo_annotations(
             detections=annotation,
             image_shape=image.shape,  # type: ignore
@@ -282,7 +304,7 @@ def save_yolo_annotations(
             max_image_area_percentage=max_image_area_percentage,
             approximation_percentage=approximation_percentage,
         )
-        save_text_file(lines=lines, file_path=yolo_annotations_path)
+        save_text_file(lines=lines, file_path=yolo_annotations_path_abs)
 
 
 def save_data_yaml(data_yaml_path: str, classes: list[str]) -> None:

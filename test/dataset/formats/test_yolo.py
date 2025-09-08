@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from supervision.dataset.formats.yolo import (
-    _image_name_to_annotation_name,
+    _image_path_to_annotation_path,
     _with_mask,
     object_to_yolo,
     yolo_annotations_to_detections,
@@ -200,13 +200,18 @@ def test_yolo_annotations_to_detections(
             "image.000.txt",
             DoesNotRaise(),
         ),  # jpg image with multiple dots in name
+        (
+            "dataset/images/subdir/image.jpg",
+            "subdir/image.txt",
+            DoesNotRaise(),
+        ),  # dataset with nested directories
     ],
 )
-def test_image_name_to_annotation_name(
+def test_image_path_to_annotation_path(
     image_name: str, expected_result: str | None, exception: Exception
 ) -> None:
     with exception:
-        result = _image_name_to_annotation_name(image_name=image_name)
+        result = _image_path_to_annotation_path(image_path=image_name)
         assert result == expected_result
 
 
