@@ -11,7 +11,7 @@ from typing import Literal
 import cv2
 import numpy as np
 import numpy.typing as npt
-from PIL import Image, ImageOps
+from PIL import ExifTags, Image
 
 from supervision.annotators.base import ImageType
 from supervision.draw.color import Color, unify_to_bgr
@@ -40,9 +40,29 @@ def load_image_shape_quick(path: str) -> tuple[int, int, int]:
     via opencv.imread, for PIL we need to explicitly do it.
     """
     with Image.open(path) as img:
-        ImageOps.exif_transpose(img, in_place=True)
         (width, height) = img.size
         channels = len(img.getbands())
+
+        # correct for exif tags
+        # NOTE: the simpler ImageOps.exif_transpose loads the full
+        # image, so it's not fast
+        exif = img.getexif()
+        orientation = exif.get(ExifTags.Base.Orientation, 1)
+        method = {
+            2: Image.Transpose.FLIP_LEFT_RIGHT,
+            3: Image.Transpose.ROTATE_180,
+            4: Image.Transpose.FLIP_TOP_BOTTOM,
+            5: Image.Transpose.TRANSPOSE,
+            6: Image.Transpose.ROTATE_270,
+            7: Image.Transpose.TRANSVERSE,
+            8: Image.Transpose.ROTATE_90,
+        }.get(orientation)
+        if method in [
+            Image.Transpose.TRANSPOSE,
+            Image.Transpose.ROTATE_90,
+            Image.Transpose.ROTATE_270,
+        ]:
+            (height, width) = (width, height)
     return height, width, channels
 
 
