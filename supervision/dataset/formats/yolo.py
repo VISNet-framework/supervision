@@ -20,6 +20,7 @@ from supervision.utils.file import (
     save_text_file,
     save_yaml_file,
 )
+from supervision.utils.image import load_image_shape_quick
 
 if TYPE_CHECKING:
     from supervision.dataset.core import DetectionDataset
@@ -315,7 +316,10 @@ def save_yolo_annotation(
     max_image_area_percentage: float = 1.0,
     approximation_percentage: float = 0.75,
 ) -> None:
-    image_path, image, annotation = dataset[index]
+    image_path = dataset.image_paths[index]
+    image_shape = load_image_shape_quick(image_path)
+    annotation = dataset.annotations[image_path]
+
     yolo_annotations_path_rel = _image_path_to_annotation_path(image_path=image_path)
     yolo_annotations_path_abs = (
         Path(annotations_directory_path) / yolo_annotations_path_rel
@@ -323,7 +327,7 @@ def save_yolo_annotation(
     yolo_annotations_path_abs.parent.mkdir(exist_ok=True, parents=True)
     lines = detections_to_yolo_annotations(
         detections=annotation,
-        image_shape=image.shape,  # type: ignore
+        image_shape=image_shape,  # type: ignore
         min_image_area_percentage=min_image_area_percentage,
         max_image_area_percentage=max_image_area_percentage,
         approximation_percentage=approximation_percentage,

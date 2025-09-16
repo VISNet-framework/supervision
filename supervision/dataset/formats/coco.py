@@ -16,6 +16,7 @@ from supervision.detection.core import Detections
 from supervision.detection.utils.converters import polygon_to_mask
 from supervision.detection.utils.masks import contains_holes, contains_multiple_segments
 from supervision.utils.file import read_json_file, save_json_file
+from supervision.utils.image import load_image_shape_quick
 
 if TYPE_CHECKING:
     from supervision.dataset.core import DetectionDataset
@@ -281,11 +282,14 @@ def save_coco_annotations(
     coco_categories = classes_to_coco_categories(classes=dataset.classes)
 
     image_id, annotation_id = 1, 1
-    for image_path, image, annotation in dataset:
-        image_height, image_width, _ = image.shape
+    for image_path in dataset.image_paths:
+        annotation = dataset.annotations[image_path]
         # NOTE: we save the image name as a relative path
         # from the annotation file location
         image_path_absolute = Path(image_path).resolve()
+        (image_height, image_width, _) = load_image_shape_quick(
+            str(image_path_absolute)
+        )
         image_path_relative = os.path.relpath(
             image_path_absolute, start=annotation_path.parent
         )

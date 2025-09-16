@@ -11,6 +11,7 @@ from typing import Literal
 import cv2
 import numpy as np
 import numpy.typing as npt
+from PIL import Image, ImageOps
 
 from supervision.annotators.base import ImageType
 from supervision.draw.color import Color, unify_to_bgr
@@ -26,6 +27,23 @@ from supervision.utils.iterables import create_batches, fill
 RelativePosition = Literal["top", "bottom"]
 
 MAX_COLUMNS_FOR_SINGLE_ROW_GRID = 3
+
+
+def load_image_shape_quick(path: str) -> tuple[int, int, int]:
+    """
+    For an image path, return image shape (height, width, channels)
+
+    Loading using Pillow is faster than using opencv, since we
+    don't load the entire image.
+
+    Exif orientation is automatically applied when loading
+    via opencv.imread, for PIL we need to explicitly do it.
+    """
+    with Image.open(path) as img:
+        ImageOps.exif_transpose(img, in_place=True)
+        (width, height) = img.size
+        channels = len(img.getbands())
+    return height, width, channels
 
 
 @ensure_cv2_image_for_processing
