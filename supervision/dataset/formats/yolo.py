@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+from functools import partial
+from multiprocessing.pool import ThreadPool
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -18,6 +20,7 @@ from supervision.utils.file import (
     save_text_file,
     save_yaml_file,
 )
+from supervision.utils.image import load_image_shape_quick
 
 if TYPE_CHECKING:
     from supervision.dataset.core import DetectionDataset
@@ -289,22 +292,48 @@ def save_yolo_annotations(
     approximation_percentage: float = 0.75,
 ) -> None:
     Path(annotations_directory_path).mkdir(parents=True, exist_ok=True)
-    for image_path, image, annotation in dataset:
-        yolo_annotations_path_rel = _image_path_to_annotation_path(
-            image_path=image_path
+
+    with ThreadPool() as pool:
+        pool.map(
+            partial(
+                save_yolo_annotation,
+                dataset=dataset,
+                annotations_directory_path=annotations_directory_path,
+                min_image_area_percentage=min_image_area_percentage,
+                max_image_area_percentage=max_image_area_percentage,
+                approximation_percentage=approximation_percentage,
+            ),
+            range(len(dataset)),
         )
-        yolo_annotations_path_abs = (
-            Path(annotations_directory_path) / yolo_annotations_path_rel
-        )
-        yolo_annotations_path_abs.parent.mkdir(exist_ok=True, parents=True)
-        lines = detections_to_yolo_annotations(
-            detections=annotation,
-            image_shape=image.shape,  # type: ignore
-            min_image_area_percentage=min_image_area_percentage,
-            max_image_area_percentage=max_image_area_percentage,
-            approximation_percentage=approximation_percentage,
-        )
-        save_text_file(lines=lines, file_path=yolo_annotations_path_abs)
+    return
+
+
+def save_yolo_annotation(
+    index: int,
+    dataset: DetectionDataset,
+    annotations_directory_path: str,
+    min_image_area_percentage: float = 0.0,
+    max_image_area_percentage: float = 1.0,
+    approximation_percentage: float = 0.75,
+) -> None:
+    image_path = dataset.image_paths[index]
+    image_shape = load_image_shape_quick(image_path)
+    annotation = dataset.annotations[image_path]
+
+    yolo_annotations_path_rel = _image_path_to_annotation_path(image_path=image_path)
+    yolo_annotations_path_abs = (
+        Path(annotations_directory_path) / yolo_annotations_path_rel
+    )
+    yolo_annotations_path_abs.parent.mkdir(exist_ok=True, parents=True)
+    lines = detections_to_yolo_annotations(
+        detections=annotation,
+        image_shape=image_shape,  # type: ignore
+        min_image_area_percentage=min_image_area_percentage,
+        max_image_area_percentage=max_image_area_percentage,
+        approximation_percentage=approximation_percentage,
+    )
+    save_text_file(lines=lines, file_path=yolo_annotations_path_abs)
+    return
 
 
 def save_data_yaml(data_yaml_path: str, classes: list[str]) -> None:
