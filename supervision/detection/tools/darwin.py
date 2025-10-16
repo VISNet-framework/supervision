@@ -56,6 +56,7 @@ class SingleDetection:
 
     xyxy: list[float]
     class_id: int
+    confidence: float | None = None
     mask: npt.NDArray[np.uint8] | None = None
     tracker_id: int | None = None
     data: dict | None = field(default_factory=dict)
@@ -101,6 +102,12 @@ def merge_detections_to_dict(dets: list[SingleDetection]) -> dict:
     masks = np.array([d.mask for d in dets if d.mask is not None], dtype=np.uint8)
     if len(masks) > 0:
         result["mask"] = masks
+
+    confidences = np.array(
+        [d.confidence for d in dets if d.confidence is not None], dtype=np.float32
+    )
+    if len(confidences) > 0:
+        result["confidence"] = confidences
     return result
 
 
@@ -117,6 +124,7 @@ def process_ellipse_as_mask(
         height=height,
         width=width,
     )
+    score = annotation.get("score", None)
     data = {}
     if "properties" in annotation:
         # NOTE this will probably work, but might not be ideal
@@ -131,7 +139,12 @@ def process_ellipse_as_mask(
     else:
         tracker_id = None
     return SingleDetection(
-        xyxy=xyxy, class_id=class_id, mask=mask, tracker_id=tracker_id, data=data
+        xyxy=xyxy,
+        class_id=class_id,
+        confidence=score,
+        mask=mask,
+        tracker_id=tracker_id,
+        data=data,
     )
 
 
@@ -145,6 +158,7 @@ def process_ellipse_as_obb(
     xyxy = xyxyxyxy_to_xyxy(xyxyxyxy)
     class_id = classes.index(annotation["name"])
     data = {ORIENTED_BOX_COORDINATES: xyxyxyxy}
+    score = annotation.get("score", None)
     if "properties" in annotation:
         # NOTE this will probably work, but might not be ideal
         # darwin stores so-called properties as list of dicts
@@ -158,7 +172,7 @@ def process_ellipse_as_obb(
     else:
         tracker_id = None
     return SingleDetection(
-        xyxy=xyxy, class_id=class_id, data=data, tracker_id=tracker_id
+        xyxy=xyxy, class_id=class_id, confidence=score, data=data, tracker_id=tracker_id
     )
 
 
@@ -175,6 +189,7 @@ def process_bounding_box(
     """
     xyxy = darwin_bounding_box_to_xyxy(annotation["bounding_box"])
     class_id = classes.index(annotation["name"])
+    score = annotation.get("score", None)
     data = {}
     if "properties" in annotation:
         # NOTE this will probably work, but might not be ideal
@@ -201,7 +216,12 @@ def process_bounding_box(
     else:
         mask = None
     return SingleDetection(
-        xyxy=xyxy, class_id=class_id, mask=mask, tracker_id=tracker_id, data=data
+        xyxy=xyxy,
+        class_id=class_id,
+        confidence=score,
+        mask=mask,
+        tracker_id=tracker_id,
+        data=data,
     )
 
 
@@ -380,7 +400,11 @@ def darwin_annotations_to_detections_dict(
     Returns:
         dict: Dictionary containing detection data, including metadata with properties.
     """
-    assert with_ellipse_as in [None, "oriented_bounding_box", "mask"], (
+    assert with_ellipse_as in [
+        None,
+        "oriented_bounding_box",
+        "mask",
+    ], (
         f"ellipse_as must be one of \
         [None, 'oriented_bounding_box', 'mask'], \\ got {with_ellipse_as}"
     )
