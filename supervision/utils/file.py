@@ -105,39 +105,47 @@ def list_files_with_extensions_recursively(
 
 
 def find_valid_images_and_annotations(
-    images_directory_path: Path,
-    annotation_path: Path,
+    images_directory_path: Path | list[Path],
+    annotation_path: Path | list[Path],
     images_extentions=["jpg", "jpeg", "png", "tiff", "tif"],
     annotation_extentions=["json"],
 ) -> tuple[list[Path], list[Path]]:
     """
-    Finds and matches valid image files and their corresponding annotation files
+    Find and match valid image files with their corresponding annotation files.
+    If images_directory_path or annotation path is directory will search
+    resurively in the folder. If input is list of paths will only find valid pairs
 
     Args:
-        images_directory_path (Path): Path to the directory containing image files.
-        annotation_path (Path): Path to the directory containing annotation files.
-        images_extentions (list[str], optional): list of valid image file extensions.
-        annotation_extentions (list[str], optional): list of valid annotation file ext.
+        images_directory_path (Path | list[Path]): Directory or list of image paths.
+        annotation_path (Path | list[Path]): Directory or list of annotation paths.
+        images_extentions (list[str], optional): Valid image file extensions.
+        annotation_extentions (list[str], optional): Valid annotation file extensions.
 
     Returns:
-        Tuple[list[Path], list[Path]]:
-            - list of image file paths that have corresponding annotation files.
-            - list of annotation file paths, sorted in natural order.
+        tuple[list[Path], list[Path]]:
+            - List of image file paths with matching annotation files.
+            - List of annotation file paths, sorted naturally.
     """
+    if isinstance(images_directory_path, Path):
+        image_candidate_paths = list_files_with_extensions_recursively(
+            directory=images_directory_path,
+            extensions=images_extentions,
+        )
+    else:
+        image_candidate_paths = images_directory_path
 
-    image_candidate_paths = list_files_with_extensions_recursively(
-        directory=images_directory_path,
-        extensions=images_extentions,
-    )
     image_candidate_stems = [path.stem for path in image_candidate_paths]
     assert len(image_candidate_stems) == len(set(image_candidate_stems)), (
         "Image filenames must be unique"
     )
 
-    annotation_paths = list_files_with_extensions_recursively(
-        directory=annotation_path,
-        extensions=annotation_extentions,
-    )
+    if isinstance(annotation_path, Path):
+        annotation_paths = list_files_with_extensions_recursively(
+            directory=annotation_path,
+            extensions=annotation_extentions,
+        )
+    else:
+        annotation_paths = annotation_path
     annotation_paths = natsort.natsorted(annotation_paths)
 
     image_paths = []
