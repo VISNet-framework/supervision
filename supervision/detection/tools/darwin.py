@@ -62,11 +62,17 @@ class SingleDetection:
     data: dict | None = field(default_factory=dict)
 
 
-def merge_detections_to_dict(dets: list[SingleDetection]) -> dict:
+def merge_detections_to_dict(
+    dets: list[SingleDetection], force_obb: bool = False
+) -> dict:
     """
     Merge a list of SingleDetection objects into a dictionary.
     This is useful for converting darwin annotations to a single
     supervision Detections object.
+
+    Set force_obb to True when using oriented bounding boxes. This
+    will ensure that an empty oriented bounding box array is created
+    for images without objects.
     """
     xyxy = np.array([d.xyxy for d in dets], dtype=np.float32)
     class_id = np.array([d.class_id for d in dets], dtype=int)
@@ -86,6 +92,9 @@ def merge_detections_to_dict(dets: list[SingleDetection]) -> dict:
         data = {k: np.array(v) for k, v in data.items()}
     except ValueError:
         data = {k: list(v) for k, v in data.items()}
+
+    if force_obb and ORIENTED_BOX_COORDINATES not in data:
+        data[ORIENTED_BOX_COORDINATES] = np.array([], dtype=np.float32)
 
     result = {
         "xyxy": xyxy,
@@ -470,7 +479,9 @@ def darwin_annotations_to_detections_dict(
                 annotation_parser[annotation_type.value](annotation)
             )
 
-    result_dict = merge_detections_to_dict(single_detections)
+    result_dict = merge_detections_to_dict(
+        single_detections, force_obb=(with_ellipse_as == "oriented_bounding_box")
+    )
     if len(metadata) > 0:
         result_dict["metadata"] = metadata
     return result_dict
