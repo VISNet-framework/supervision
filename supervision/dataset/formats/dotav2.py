@@ -31,7 +31,7 @@ def detections_to_dota_annotations(
     """
     # Convert detections to DOTAV2 format
     lines = []
-    for xyxy, _, _, class_id, data, _ in detections:
+    for xyxy, _, _, class_id, _, data in detections:
         assert ORIENTED_BOX_COORDINATES in data
         xyxyxyxy = data[ORIENTED_BOX_COORDINATES].flatten().tolist()
         assert len(xyxyxyxy) == 8, f"Expected 8 coordinates, got {len(xyxyxyxy)}"
