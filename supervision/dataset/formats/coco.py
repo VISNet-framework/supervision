@@ -213,11 +213,25 @@ def get_coco_class_index_mapping(annotations_path: str) -> dict[int, int]:
 
 
 def load_coco_annotations(
-    images_directory_path: str,
+    images_directory_path: str | None,
     annotations_path: str,
     force_masks: bool = False,
     use_iscrowd: bool = True,
 ) -> tuple[list[str], list[str], dict[str, Detections]]:
+    """
+    Load COCO format annotations and return classes, image paths, and detections.
+    Args:
+        images_directory_path: Path to directory containing images. If None, uses
+            parent directory of annotations_path.
+        annotations_path: Path to COCO format JSON annotations file.
+        force_masks: If True, forces loading of segmentation masks.
+        use_iscrowd: If True, includes crowd annotations.
+    Returns:
+        Tuple containing:
+            - List of class names
+            - List of image file paths
+            - Dictionary mapping image paths to Detections objects
+    """
     coco_data = read_json_file(file_path=annotations_path)
     classes = coco_categories_to_classes(coco_categories=coco_data["categories"])
 
@@ -240,7 +254,10 @@ def load_coco_annotations(
             coco_image["height"],
         )
         image_annotations = coco_annotations_groups.get(coco_image["id"], [])
-        image_path = str((Path(annotations_path).parent / image_name).resolve())
+        if images_directory_path is None:
+            image_path = str((Path(annotations_path).parent / image_name).resolve())
+        else:
+            image_path = str((Path(images_directory_path) / image_name).resolve())
 
         annotation = coco_annotations_to_detections(
             image_annotations=image_annotations,

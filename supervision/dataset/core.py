@@ -648,7 +648,7 @@ class DetectionDataset(BaseDataset):
     @classmethod
     def from_coco(
         cls,
-        images_directory_path: str,
+        images_directory_path: str | None,
         annotations_path: str,
         force_masks: bool = False,
     ) -> DetectionDataset:
@@ -656,8 +656,8 @@ class DetectionDataset(BaseDataset):
         Creates a Dataset instance from COCO formatted data.
 
         Args:
-            images_directory_path (str): The path to the
-                directory containing the images.
+            images_directory_path (str | None): The path to the
+                directory containing the images, if None will use annotations_path
             annotations_path (str): The path to the json annotation files.
             force_masks (bool): If True,
                 forces masks to be loaded for all annotations,
