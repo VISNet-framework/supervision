@@ -149,16 +149,18 @@ def detections_to_coco_annotations(
             elif mask.sum() == 0:
                 segmentation = []
             else:
-                segmentation = [
-                    list(
-                        approximate_mask_with_polygons(
-                            mask=mask,
-                            min_image_area_percentage=min_image_area_percentage,
-                            max_image_area_percentage=max_image_area_percentage,
-                            approximation_percentage=approximation_percentage,
-                        )[0].flatten()
-                    )
-                ]
+                approximate = approximate_mask_with_polygons(
+                    mask=mask,
+                    min_image_area_percentage=min_image_area_percentage,
+                    max_image_area_percentage=max_image_area_percentage,
+                    approximation_percentage=approximation_percentage,
+                )
+                # 2026-02-06 if max is small like mask.sum()=2
+                # method below will give an index error
+                if len(approximate) > 0:
+                    segmentation = [list(approximate[0].flatten())]
+                else:
+                    segmentation = []
         coco_annotation = {
             "id": annotation_id,
             "image_id": image_id,
