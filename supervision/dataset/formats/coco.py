@@ -155,8 +155,9 @@ def detections_to_coco_annotations(
                     max_image_area_percentage=max_image_area_percentage,
                     approximation_percentage=approximation_percentage,
                 )
-                # 2026-02-06 if max is small like mask.sum()=2
-                # method below will give an index error
+                # if max is a few pixels, approximation can return an
+                # empty list, we assume this means the mask should
+                # be thrown away anyway
                 if len(approximate) > 0:
                     segmentation = [list(approximate[0].flatten())]
                 else:
