@@ -1,5 +1,6 @@
 import os
 import uuid
+import warnings
 from pathlib import Path
 
 import cv2
@@ -279,12 +280,10 @@ def _detection_xyxy_to_darwin_bbox(xyxy: np.ndarray) -> dict[str, float]:
     x1y1wh[2] = xyxy[2] - xyxy[0]
     x1y1wh[3] = xyxy[3] - xyxy[1]
 
-    # TODO ask bart if we need to check if bbox is inside image
-    # x1y1wh[0] = max(x1y1wh[0], 0)
-    # x1y1wh[1] = max(x1y1wh[1], 0)
-
-    assert not x1y1wh[0] < 0, f"Negative x1 {x1y1wh[0]}"
-    assert not x1y1wh[1] < 0, f"Negative y1 {x1y1wh[1]}"
+    if x1y1wh[0] < 0:
+        warnings.warn(f"Negative x1 {x1y1wh[0]}")
+    if x1y1wh[1] < 0:
+        warnings.warn(f"Negative y1 {x1y1wh[1]}")
     assert not x1y1wh[2] < 0, f"Negative w {x1y1wh[2]}"
     assert not x1y1wh[3] < 0, f"Negative h {x1y1wh[3]}"
 
