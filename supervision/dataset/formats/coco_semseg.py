@@ -123,11 +123,21 @@ def save_coco_semseg_annotations(
         not_found = [cls for cls in skip_classes if cls not in dataset.classes]
         if not_found:
             raise ValueError(f"Classes {not_found} not found in dataset.classes")
+        if segmentation_order is None:
+            order_for_skip_classes = dataset.classes
+        else:
+            order_for_skip_classes = segmentation_order
+
         idx_skip_classes = [
             idx
-            for idx, class_name in enumerate(dataset.classes)
+            for idx, class_name in enumerate(order_for_skip_classes)
             if class_name in skip_classes
         ]
+        print(
+            "skip classes is not None, it might be smart to check \
+              segmentation_order. Make sure that skip class is the last class"
+        )
+        print(f"Removing {idx_skip_classes}")
 
     coco_semseg_annotations = []
     with tqdm.tqdm(dataset, desc="Creating coco_semseg images", unit="img") as pbar:
@@ -140,7 +150,7 @@ def save_coco_semseg_annotations(
             )
 
             # reorder annotations
-            annotation = reorder_detections(annotation, segmentation_order)
+            annotation = reorder_detections(annotation, segmentation_order_id)
 
             ## it might be possible that an image only consist of background class
             if len(annotation.xyxy) == 0 and annotation.mask is None:
