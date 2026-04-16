@@ -59,7 +59,7 @@ def test_detections_to_darwin_dict_bbox(
 def test__detection_xyxy_to_darwin_bbox_assertion(
     xyxy, confidence, class_id, tracker_id
 ):
-    xyxy = np.array([-1, 2, 11, 22])
+    xyxy = np.array([1, 2, -1, 22])
     with pytest.raises(AssertionError):
         darwin._detection_xyxy_to_darwin_bbox(xyxy)
 
