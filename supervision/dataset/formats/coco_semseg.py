@@ -134,8 +134,9 @@ def save_coco_semseg_annotations(
             if class_name in skip_classes
         ]
         print(
-            "skip classes is not None, it might be smart to check \
-              segmentation_order. Make sure that skip class is the last class"
+            "skip classes is not None, Check \
+              segmentation_order argument to make sure the skip class is the last class\
+                to prevent any gaps in GT semantic images [0,1,2] ipv [0,2]"
         )
         print(f"Removing {idx_skip_classes}")
 
