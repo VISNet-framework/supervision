@@ -11,6 +11,7 @@ crop boundaries, so no extra metadata is required from the caller.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 from typing import Any
 
@@ -43,6 +44,346 @@ def _rle_area(rle: npt.NDArray[np.int32]) -> int:
         ```
     """
     return int(np.sum(rle[1::2]))
+
+
+def _rle_split_cols(
+    rle: npt.NDArray[np.int32],
+    crop_h: int,
+    crop_w: int,
+) -> list[list[int]]:
+    """Split a flat F-order RLE into per-column run lists.
+
+    With F-order (column-major) RLE the flat pixel sequence visits all rows
+    of column 0, then all rows of column 1, etc.  Each column therefore
+    contains ``crop_h`` contiguous pixels.
+
+    Runs that cross column boundaries are split at the boundary.  Each
+    returned list starts with a ``False``-run count (possibly 0), matching
+    the convention of :func:`_mask_to_rle_counts`.
+
+    Args:
+        rle: int32 run-length array as produced by
+            :func:`~supervision.detection.utils.converters._mask_to_rle_counts`.
+        crop_h: Number of rows (pixels per column).
+        crop_w: Number of columns.
+
+    Returns:
+        List of ``crop_w`` run lists, one per column.  Each list sums to
+        ``crop_h``.
+
+    Examples:
+        ```pycon
+        >>> import numpy as np
+        >>> from supervision.detection.compact_mask import _rle_split_cols
+        >>> from supervision.detection.utils.converters import _mask_to_rle_counts
+        >>> mask = np.array([[True, False], [True, True]], dtype=bool)
+        >>> rle = _mask_to_rle_counts(mask)
+        >>> rle.tolist()
+        [0, 2, 1, 1]
+        >>> _rle_split_cols(rle, 2, 2)
+        [[0, 2], [1, 1]]
+
+        ```
+    """
+    per_col: list[list[int]] = [[] for _ in range(crop_w)]
+    col = 0
+    row = 0
+
+    for run_idx, run_len in enumerate(rle):
+        is_true = run_idx % 2 == 1
+        remaining = int(run_len)
+        while remaining > 0:
+            space_in_col = crop_h - row
+            take = min(remaining, space_in_col)
+            if len(per_col[col]) == 0:
+                if is_true:
+                    per_col[col].append(0)  # leading False count = 0
+            # Check if last run has same parity (True/False) as current chunk.
+            # Last element's parity: index (len-1) odd → True, even → False.
+            elif is_true == ((len(per_col[col]) - 1) % 2 == 1):
+                per_col[col][-1] += take
+                remaining -= take
+                row += take
+                if row >= crop_h:
+                    row = 0
+                    col += 1
+                continue
+            per_col[col].append(take)
+            remaining -= take
+            row += take
+            if row >= crop_h:
+                row = 0
+                col += 1
+        if col >= crop_w:
+            break
+
+    # Fill any empty columns (all-False).
+    for c in range(crop_w):
+        if not per_col[c]:
+            per_col[c] = [crop_h]
+
+    return per_col
+
+
+def _rle_scale_col(
+    col_runs: list[int],
+    src_h: int,
+    row_map: npt.NDArray[np.int32],
+) -> list[int]:
+    """Scale one column's run list to a new height using a precomputed row map.
+
+    Each output row is mapped to a source row via ``row_map``, which
+    implements nearest-neighbour resampling in the vertical direction.
+
+    Args:
+        col_runs: Per-column run list starting with a ``False``-run count.
+        src_h: Height of the source column (sum of ``col_runs``).
+        row_map: int32 array of length ``new_crop_h``; ``row_map[r']`` is the
+            source row index for output row ``r'``.  Use
+            ``(np.arange(new_crop_h) * src_h // new_crop_h)`` for
+            ``cv2.INTER_NEAREST``-compatible mapping.
+
+    Returns:
+        Scaled run list of total length ``len(row_map)``, always starting
+        with a ``False``-run count.
+
+    Examples:
+        ```pycon
+        >>> import numpy as np
+        >>> from supervision.detection.compact_mask import _rle_scale_col
+        >>> col_runs = [0, 2, 2]   # F=0, T=2, F=2  → [T, T, F, F]
+        >>> row_map = np.array([0, 1, 2, 3, 0, 1, 2, 3], dtype=np.int32)
+        >>> _rle_scale_col(col_runs, 4, row_map)
+        [0, 2, 2, 2, 2]
+
+        ```
+    """
+    new_crop_h = len(row_map)
+    if new_crop_h == 0:
+        return [0]
+
+    # Reconstruct per-source-row boolean values from run list.
+    src_values: npt.NDArray[np.bool_] = np.empty(src_h, dtype=np.bool_)
+    pos = 0
+    for ri, rl in enumerate(col_runs):
+        src_values[pos : pos + rl] = ri % 2 == 1  # odd index → True
+        pos += rl
+    if pos < src_h:
+        src_values[pos:] = False  # pad truncated RLE
+
+    # Map output rows to source values.
+    out_values = src_values[row_map]
+
+    # RLE-encode the output column; vectorised via np.diff on bool view.
+    out_uint8 = out_values.view(np.uint8)
+    boundaries = np.flatnonzero(np.diff(out_uint8))
+    run_starts: npt.NDArray[np.int64] = np.empty(len(boundaries) + 1, dtype=np.int64)
+    run_ends: npt.NDArray[np.int64] = np.empty(len(boundaries) + 1, dtype=np.int64)
+    run_starts[0] = 0
+    run_starts[1:] = boundaries + 1
+    run_ends[:-1] = boundaries + 1
+    run_ends[-1] = new_crop_h
+    result_runs: list[int] = (run_ends - run_starts).tolist()
+    # RLE starts with a False count; prepend 0 if output begins with True.
+    if bool(out_values[0]):
+        result_runs.insert(0, 0)
+    return result_runs
+
+
+def _rle_join_cols(
+    scaled_cols: list[list[int]],
+    new_total: int,
+) -> npt.NDArray[np.int32]:
+    """Concatenate per-column run lists into a flat RLE, merging junctions.
+
+    Each column run list starts with a ``False``-run count. Two junction types
+    can be merged across column boundaries:
+
+    * ``False``/``False``: the trailing False run merges with the leading False
+      run of the next column (leading count may be zero).
+    * ``True``/``True``: when the accumulated output ends on a True run and the
+      next column's leading False count is zero (column starts with True), the
+      two True runs are merged to avoid inserting a zero-length False run that
+      would inflate ``len(rle)`` and skew the density metric in
+      :func:`_resize_crop`.
+
+    Args:
+        scaled_cols: List of per-column run lists, each starting with a
+            ``False``-run count.
+        new_total: Total pixel count of the output (fallback for empty input).
+
+    Returns:
+        Flat int32 RLE array starting with a ``False``-run count.
+
+    Examples:
+        ```pycon
+        >>> import numpy as np
+        >>> from supervision.detection.compact_mask import _rle_join_cols
+        >>> cols = [[1, 2], [1, 2]]  # each col: F=1, T=2
+        >>> _rle_join_cols(cols, 6).tolist()
+        [1, 2, 1, 2]
+
+        ```
+    """
+    output_runs: list[int] = []
+    for col_runs in scaled_cols:
+        if not output_runs:
+            output_runs.extend(col_runs)
+        else:
+            last_is_true = (len(output_runs) - 1) % 2 == 1
+            # col_runs always starts with a False count → first_is_true=False
+            if not last_is_true:  # last == False == first → merge
+                output_runs[-1] += col_runs[0]
+                output_runs.extend(col_runs[1:])
+            elif col_runs[0] == 0 and len(col_runs) > 1:
+                # last run = True; column also starts True (leading False = 0)
+                # → merge to avoid a zero-length False run at the junction.
+                output_runs[-1] += col_runs[1]
+                output_runs.extend(col_runs[2:])
+            else:
+                output_runs.extend(col_runs)
+
+    return np.array(output_runs if output_runs else [new_total], dtype=np.int32)
+
+
+def _rle_resize(
+    rle: npt.NDArray[np.int32],
+    crop_h: int,
+    crop_w: int,
+    new_crop_h: int,
+    new_crop_w: int,
+) -> npt.NDArray[np.int32]:
+    """Resize an F-order RLE-encoded crop via nearest-neighbour resampling.
+
+    Manipulates run lengths directly without decoding to a full 2D boolean
+    array.  Delegates to :func:`_rle_split_cols`, :func:`_rle_scale_col`,
+    and :func:`_rle_join_cols`.
+
+    The nearest-neighbour mapping ``src = floor(dst * src_size / dst_size)``
+    is bit-exact with ``cv2.INTER_NEAREST``.
+
+    Args:
+        rle: int32 array of F-order run lengths as produced by
+            :func:`~supervision.detection.utils.converters._mask_to_rle_counts`.
+            Starts with a ``False``-run count (may be 0).
+        crop_h: Height of the original crop.
+        crop_w: Width of the original crop.
+        new_crop_h: Height of the resized crop.
+        new_crop_w: Width of the resized crop.
+
+    Returns:
+        int32 array of F-order run lengths for the resized crop, starting
+        with the ``False``-run count.
+
+    Examples:
+        Upscale a 3x3 mask with a diagonal True stripe to 6x6:
+
+        ```pycon
+        >>> import numpy as np
+        >>> from supervision.detection.compact_mask import _rle_resize
+        >>> from supervision.detection.utils.converters import (
+        ...     _mask_to_rle_counts, _rle_counts_to_mask,
+        ... )
+        >>> mask = np.array([
+        ...     [True,  False, False],
+        ...     [False, True,  False],
+        ...     [False, False, True ],
+        ... ], dtype=bool)
+        >>> rle = _mask_to_rle_counts(mask)
+        >>> resized_rle = _rle_resize(rle, 3, 3, 6, 6)
+        >>> result = _rle_counts_to_mask(resized_rle, 6, 6)
+        >>> result.astype(int)
+        array([[1, 1, 0, 0, 0, 0],
+               [1, 1, 0, 0, 0, 0],
+               [0, 0, 1, 1, 0, 0],
+               [0, 0, 1, 1, 0, 0],
+               [0, 0, 0, 0, 1, 1],
+               [0, 0, 0, 0, 1, 1]])
+
+        ```
+    """
+    new_total = new_crop_h * new_crop_w
+
+    if crop_h * crop_w == 0 or new_total == 0:
+        return np.array([0], dtype=np.int32)
+    if len(rle) == 1 or int(np.sum(rle[1::2])) == 0:
+        return np.array([new_total], dtype=np.int32)
+    if len(rle) == 2 and rle[0] == 0:
+        return np.array([0, new_total], dtype=np.int32)
+
+    per_col = _rle_split_cols(rle, crop_h, crop_w)
+
+    # cv2.INTER_NEAREST column mapping: src = floor(dst * src_w / dst_w)
+    col_map = (np.arange(new_crop_w) * crop_w // new_crop_w).astype(np.int32)
+
+    # cv2.INTER_NEAREST row mapping: src = floor(dst * src_h / dst_h)
+    row_map = (np.arange(new_crop_h) * crop_h // new_crop_h).astype(np.int32)
+
+    # Scale each unique source column once; reuse via cache for repeated cols.
+    col_cache: dict[int, list[int]] = {}
+    scaled_cols = []
+    for src_c in col_map:
+        if src_c not in col_cache:
+            col_cache[src_c] = _rle_scale_col(per_col[src_c], crop_h, row_map)
+        scaled_cols.append(col_cache[src_c])
+
+    return _rle_join_cols(scaled_cols, new_total)
+
+
+# Fraction of (run_count / pixel_count) below which _rle_resize is used
+# instead of the decode → cv2 → re-encode path.  Sparse masks have few long
+# runs; dense/complex masks approach 1 run per 2 pixels.
+_L3_DENSITY_THRESHOLD: float = 0.25
+# Thread overhead outweighs gains below this mask count.
+_PARALLEL_THRESHOLD: int = 8
+
+
+def _resize_crop(
+    rle: npt.NDArray[np.int32],
+    orig_h: int,
+    orig_w: int,
+    new_h: int,
+    new_w: int,
+) -> npt.NDArray[np.int32]:
+    """Resize one RLE crop to ``(new_h, new_w)``, choosing the fastest path.
+
+    Dispatch order:
+
+    1. **All-False fast path** — returns a single False run; no decode.
+    2. **L3 direct RLE path** — used when run density is below
+       :data:`_L3_DENSITY_THRESHOLD`; manipulates run lengths without
+       allocating a 2D array.
+    3. **cv2 fallback** — decodes to ``uint8``, calls
+       ``cv2.resize(INTER_NEAREST)``, re-encodes; used for dense masks.
+
+    Args:
+        rle: int32 run-length array for the source crop.
+        orig_h: Height of the source crop.
+        orig_w: Width of the source crop.
+        new_h: Target height.
+        new_w: Target width.
+
+    Returns:
+        int32 RLE array for the resized crop.
+    """
+    import cv2
+
+    # All-False: skip decode entirely.
+    if _rle_area(rle) == 0:
+        return np.array([new_h * new_w], dtype=np.int32)
+
+    # L3: direct RLE arithmetic for sparse masks.
+    if len(rle) / max(1, orig_h * orig_w) < _L3_DENSITY_THRESHOLD:
+        return _rle_resize(rle, orig_h, orig_w, new_h, new_w)
+
+    # cv2 fallback for dense masks.
+    crop = _rle_counts_to_mask(rle, orig_h, orig_w)
+    resized = cv2.resize(
+        crop.view(np.uint8),
+        (new_w, new_h),
+        interpolation=cv2.INTER_NEAREST,
+    ).astype(bool)
+    return _mask_to_rle_counts(resized)
 
 
 class CompactMask:
@@ -843,3 +1184,123 @@ class CompactMask:
             np.array(out_offsets_list, dtype=np.int32),
             new_image_shape,
         )
+
+    # ------------------------------------------------------------------
+    # Resize
+    # ------------------------------------------------------------------
+
+    def resize(self, new_image_shape: tuple[int, int]) -> CompactMask:
+        """Return a new CompactMask scaled to a different image resolution.
+
+        Each crop mask is resized with nearest-neighbour interpolation.
+        Sparse masks use direct RLE arithmetic (:func:`_rle_resize`); dense
+        masks fall back to ``cv2.resize(INTER_NEAREST)``.  Offsets and crop
+        dimensions are scaled proportionally to the new image size.
+
+        Performance notes:
+
+        * Coordinate arithmetic is fully vectorised (no Python loop over N).
+        * All-``False`` crops skip decode/resize entirely.
+        * For N >= 8, resize runs in a thread pool — NumPy and OpenCV
+          release the GIL so crops execute in parallel on multi-core CPUs.
+
+        Args:
+            new_image_shape: ``(H, W)`` of the target image.
+
+        Returns:
+            New :class:`CompactMask` with updated ``image_shape``, scaled
+            offsets, scaled crop shapes, and re-encoded RLE crops.
+
+        Raises:
+            ValueError: If any dimension in *new_image_shape* is ``<= 0``.
+
+        Examples:
+            ```pycon
+            >>> import numpy as np
+            >>> from supervision.detection.compact_mask import CompactMask
+            >>> masks = np.zeros((1, 100, 100), dtype=bool)
+            >>> masks[0, 20:40, 30:60] = True
+            >>> xyxy = np.array([[30, 20, 59, 39]], dtype=np.float32)
+            >>> cm = CompactMask.from_dense(masks, xyxy, image_shape=(100, 100))
+            >>> small = cm.resize((50, 50))
+            >>> small.shape
+            (1, 50, 50)
+            >>> small.offsets[0].tolist()
+            [15, 10]
+
+            ```
+        """
+        from concurrent.futures import ThreadPoolExecutor
+
+        new_h, new_w = new_image_shape
+        if new_h <= 0 or new_w <= 0:
+            raise ValueError("new_image_shape must contain positive dimensions")
+
+        # fast path — identity resize; list() creates a new container but the
+        # individual RLE numpy arrays are shared (shallow copy).  Callers must
+        # not mutate returned RLE arrays in-place.
+        if (new_h, new_w) == self._image_shape:
+            return CompactMask(
+                list(self._rles),
+                self._crop_shapes.copy(),
+                self._offsets.copy(),
+                new_image_shape,
+            )
+
+        # empty guard
+        if len(self) == 0:
+            return CompactMask(
+                [],
+                np.empty((0, 2), dtype=np.int32),
+                np.empty((0, 2), dtype=np.int32),
+                new_image_shape,
+            )
+
+        img_h, img_w = self._image_shape
+        sx = new_w / img_w
+        sy = new_h / img_h
+
+        # L1 — vectorised coordinate arithmetic; no Python loop over N masks.
+        x1s = self._offsets[:, 0].astype(np.float64)
+        y1s = self._offsets[:, 1].astype(np.float64)
+        x2s = x1s + self._crop_shapes[:, 1] - 1  # inclusive right edge
+        y2s = y1s + self._crop_shapes[:, 0] - 1  # inclusive bottom edge
+
+        new_x1s = np.clip(np.round(x1s * sx), 0, new_w - 1).astype(np.int32)
+        new_y1s = np.clip(np.round(y1s * sy), 0, new_h - 1).astype(np.int32)
+        new_x2s = np.clip(np.round(x2s * sx), 0, new_w - 1).astype(np.int32)
+        new_y2s = np.clip(np.round(y2s * sy), 0, new_h - 1).astype(np.int32)
+        new_crop_ws: npt.NDArray[np.int32] = np.maximum(
+            1, new_x2s - new_x1s + 1
+        ).astype(np.int32)
+        new_crop_hs: npt.NDArray[np.int32] = np.maximum(
+            1, new_y2s - new_y1s + 1
+        ).astype(np.int32)
+
+        # L2b — parallel per-crop resize; NumPy and OpenCV release the GIL.
+        orig_crop_hs = self._crop_shapes[:, 0]
+        orig_crop_ws = self._crop_shapes[:, 1]
+
+        args = [
+            (
+                self._rles[i],
+                int(orig_crop_hs[i]),
+                int(orig_crop_ws[i]),
+                int(new_crop_hs[i]),
+                int(new_crop_ws[i]),
+            )
+            for i in range(len(self))
+        ]
+
+        n = len(self)
+        if n >= _PARALLEL_THRESHOLD:
+            with ThreadPoolExecutor(max_workers=min(n, os.cpu_count() or 4)) as pool:
+                new_rles: list[npt.NDArray[np.int32]] = list(
+                    pool.map(lambda a: _resize_crop(*a), args)
+                )
+        else:
+            new_rles = [_resize_crop(*a) for a in args]
+
+        new_crop_shapes = np.column_stack((new_crop_hs, new_crop_ws)).astype(np.int32)
+        new_offsets = np.column_stack((new_x1s, new_y1s)).astype(np.int32)
+        return CompactMask(new_rles, new_crop_shapes, new_offsets, new_image_shape)
