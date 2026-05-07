@@ -233,11 +233,12 @@ def _detections_to_darwin_annotations(
         annotation = {
             "id": ann_id,
             "name": class_name,
-            "instance_id": {"value": tracker_id},
             "properties": data.get("properties", []),
             "slot_names": ["0"],
             "score": confidence,
         }
+        if tracker_id is not None:
+            annotation["instance_id"] = {"value": tracker_id}
 
         if ORIENTED_BOX_COORDINATES in data:
             annotation["ellipse"] = _detection_xyxyxyxy_to_darwin_ellipse(
