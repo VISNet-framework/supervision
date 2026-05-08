@@ -92,7 +92,9 @@ def save_coco_semseg_annotations(
         Might be useful in certain scenarios for example, if annotations are overlaying
             / not subtracted. Defaults to None.
         skip_classes (list[str], optional): list of class names to skip when generating
-            masks. Defaults to None.
+            masks. Defaults to None. To prevent any gaps you might want to combine this
+            with the segmentation_order argument to prevent any gaps in final GT semseg:
+            [0,1,2,4] for example might not be desired.
 
     Returns:
         None
