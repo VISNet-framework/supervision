@@ -92,7 +92,9 @@ def save_coco_semseg_annotations(
         Might be useful in certain scenarios for example, if annotations are overlaying
             / not subtracted. Defaults to None.
         skip_classes (list[str], optional): list of class names to skip when generating
-            masks. Defaults to None.
+            masks. Defaults to None. To prevent any gaps you might want to combine this
+            with the segmentation_order argument to prevent any gaps in final GT semseg:
+            [0,1,2,4] for example might not be desired.
 
     Returns:
         None
@@ -123,11 +125,22 @@ def save_coco_semseg_annotations(
         not_found = [cls for cls in skip_classes if cls not in dataset.classes]
         if not_found:
             raise ValueError(f"Classes {not_found} not found in dataset.classes")
+        if segmentation_order is None:
+            order_for_skip_classes = dataset.classes
+        else:
+            order_for_skip_classes = segmentation_order
+
         idx_skip_classes = [
             idx
-            for idx, class_name in enumerate(dataset.classes)
+            for idx, class_name in enumerate(order_for_skip_classes)
             if class_name in skip_classes
         ]
+        print(
+            "skip classes is not None, Check \
+              segmentation_order argument to make sure the skip class is the last class\
+                to prevent any gaps in GT semantic images [0,1,2] ipv [0,2]"
+        )
+        print(f"Removing {idx_skip_classes}")
 
     coco_semseg_annotations = []
     with tqdm.tqdm(dataset, desc="Creating coco_semseg images", unit="img") as pbar:
@@ -140,7 +153,7 @@ def save_coco_semseg_annotations(
             )
 
             # reorder annotations
-            annotation = reorder_detections(annotation, segmentation_order)
+            annotation = reorder_detections(annotation, segmentation_order_id)
 
             ## it might be possible that an image only consist of background class
             if len(annotation.xyxy) == 0 and annotation.mask is None:
