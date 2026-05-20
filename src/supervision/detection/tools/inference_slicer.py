@@ -1,12 +1,5 @@
 from __future__ import annotations
 
-import warnings
-from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor, as_completed
-
-import numpy as np
-
-from supervision.config import ORIENTED_BOX_COORDINATES
 import threading
 import warnings
 from collections.abc import Callable

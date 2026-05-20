@@ -24,7 +24,7 @@ class NumpyJsonEncoder(json.JSONEncoder):
 class ExtendedJSONEncoder(json.JSONEncoder):
     """Special json encoder for numpy types, paths and datetimes"""
 
-    def default(self, obj):
+    def default(self, obj: Any) -> Any:
         if isinstance(obj, (datetime.datetime, datetime.date, datetime.time)):
             return obj.isoformat()
         if isinstance(obj, Path):
@@ -106,7 +106,7 @@ def list_files_with_extensions_recursively(
         (list[Path]): A list of Path objects for the matching files.
     """
     directory = Path(directory)
-    files_with_extensions = []
+    files_with_extensions: list[Path] = []
 
     if extensions is not None:
         for ext in extensions:
@@ -120,8 +120,8 @@ def list_files_with_extensions_recursively(
 def find_valid_images_and_annotations(
     images_directory_path: Path | list[Path],
     annotation_path: Path | list[Path],
-    images_extentions=["jpg", "jpeg", "png", "tiff", "tif"],
-    annotation_extentions=["json"],
+    images_extentions: list[str] = ["jpg", "jpeg", "png", "tiff", "tif"],
+    annotation_extentions: list[str] = ["json"],
 ) -> tuple[list[Path], list[Path]]:
     """
     Find and match valid image files with their corresponding annotation files.

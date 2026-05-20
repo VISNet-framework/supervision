@@ -12,10 +12,10 @@ from supervision.config import (
     CLASS_NAME_DATA_FIELD,
     ORIENTED_BOX_COORDINATES,
 )
+from supervision.detection.compact_mask import CompactMask
 from supervision.detection.tools.darwin import (
     darwin_annotations_to_detections_dict,
 )
-from supervision.detection.compact_mask import CompactMask
 from supervision.detection.tools.transformers import (
     process_transformers_detection_result,
     process_transformers_v4_segmentation_result,

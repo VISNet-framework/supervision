@@ -11,9 +11,8 @@ from typing import Any, Literal, cast
 import cv2
 import numpy as np
 import numpy.typing as npt
-from PIL import ExifTags, Image
-
 from deprecate import deprecated
+from PIL import ExifTags, Image
 
 from supervision.draw.base import ImageType
 from supervision.draw.color import Color, unify_to_bgr
