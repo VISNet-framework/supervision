@@ -1,0 +1,38 @@
+name: Tag version on main_wur
+
+on:
+  push:
+    branches: [main_wur]
+    paths-ignore:
+      - "docs/**"
+      - "tutorials/**"
+      - "README.md"
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract version from pyproject.toml
+        id: version
+        run: |
+          version=$(grep '^version = ' pyproject.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          echo "version=$version" >> $GITHUB_OUTPUT
+
+      - name: Create and push tag
+        run: |
+          tag="v${{ steps.version.outputs.version }}"
+          if git ls-remote --tags origin "$tag" | grep -q "$tag"; then
+            echo "Tag $tag already exists, skipping."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag "$tag"
+            git push origin "$tag"
+            echo "Tagged $tag"
+          fi
