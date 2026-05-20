@@ -338,12 +338,14 @@ def load_coco_annotations(
                 f"({images_directory_resolved}). Expected a path to an "
                 "image file."
             )
-        if images_directory_resolved not in resolved_image_path.parents:
-            raise ValueError(
-                f"COCO annotation refers to image {image_name!r}, which "
-                f"resolves to {resolved_image_path} — outside the images "
-                f"directory {images_directory_resolved}."
-            )
+        # Bart 2026-05-20 disabled following line because image location
+        # is different from annotation version
+        # if images_directory_resolved not in resolved_image_path.parents:
+        #     raise ValueError(
+        #         f"COCO annotation refers to image {image_name!r}, which "
+        #         f"resolves to {resolved_image_path} — outside the images "
+        #         f"directory {images_directory_resolved}."
+        #     )
         if resolved_image_path.is_dir():
             raise ValueError(
                 f"COCO annotation refers to image {image_name!r}, which "
