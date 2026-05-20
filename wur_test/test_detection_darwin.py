@@ -69,7 +69,7 @@ def test_darwin_ellipse_to_mask():
     }
     mask = darwin.darwin_ellipse_to_mask(ellipse, height=20, width=20)
     assert mask.shape == (20, 20)
-    assert mask.dtype == np.uint8
+    assert mask.dtype == np.bool
     assert np.max(mask) == 1
     assert np.min(mask) == 0
 
@@ -98,7 +98,7 @@ def test_darwin_polygon_to_mask():
     }
     mask = darwin.darwin_polygon_to_mask(polygon, height=10, width=10)
     assert mask.shape == (10, 10)
-    assert mask.dtype == np.uint8
+    assert mask.dtype == np.bool
     assert np.max(mask) == 1
     assert np.min(mask) == 0
     # The center should be inside the mask
@@ -251,7 +251,7 @@ def test_merge_detections_to_dict_basic():
 def test_merge_detections_to_dict_with_mask_and_tracker():
     from supervision.detection.tools.darwin import SingleDetection
 
-    mask = np.zeros((10, 10), dtype=np.uint8)
+    mask = np.zeros((10, 10), dtype=bool)
     det = SingleDetection(
         xyxy=[1, 2, 3, 4], class_id=0, mask=mask, tracker_id=42, data={}
     )
