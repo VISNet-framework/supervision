@@ -1,13 +1,25 @@
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
+import tempfile
+import threading
 import time
 from collections import deque
 from collections.abc import Callable, Generator
 from dataclasses import dataclass
+from queue import Empty, Full, Queue
+from typing import Any
 
 import cv2
 import numpy as np
+import numpy.typing as npt
 from tqdm.auto import tqdm
+
+from supervision.utils.logger import _get_logger
+
+logger = _get_logger(__name__)
 
 
 @dataclass
@@ -17,20 +29,21 @@ class VideoInfo:
         total number of frames.
 
     Attributes:
-        width (int): width of the video in pixels
-        height (int): height of the video in pixels
-        fps (int): frames per second of the video
-        total_frames (Optional[int]): total number of frames in the video,
+        width: width of the video in pixels
+        height: height of the video in pixels
+        fps: frames per second of the video as a float. Common values include
+            23.976, 24.0, 25.0, 29.97, 30.0, 59.94, and 60.0.
+        total_frames: total number of frames in the video,
             default is None
 
     Examples:
         ```python
         import supervision as sv
 
-        video_info = sv.VideoInfo.from_video_path(video_path=<SOURCE_VIDEO_FILE>)
+        video_info = sv.VideoInfo.from_video_path(video_path="<SOURCE_VIDEO_FILE>")
 
         video_info
-        # VideoInfo(width=3840, height=2160, fps=25, total_frames=538)
+        # VideoInfo(width=3840, height=2160, fps=25.0, total_frames=538)
 
         video_info.resolution_wh
         # (3840, 2160)
@@ -39,7 +52,7 @@ class VideoInfo:
 
     width: int
     height: int
-    fps: int
+    fps: float
     total_frames: int | None = None
 
     @classmethod
@@ -50,7 +63,7 @@ class VideoInfo:
 
         width = int(video.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(video.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        fps = int(video.get(cv2.CAP_PROP_FPS))
+        fps = float(video.get(cv2.CAP_PROP_FPS))
         total_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
         video.release()
         return VideoInfo(width, height, fps, total_frames)
@@ -65,19 +78,19 @@ class VideoSink:
     Context manager that saves video frames to a file using OpenCV.
 
     Attributes:
-        target_path (str): The path to the output file where the video will be saved.
-        video_info (VideoInfo): Information about the video resolution, fps,
+        target_path: The path to the output file where the video will be saved.
+        video_info: Information about the video resolution, fps,
             and total frame count.
-        codec (str): FOURCC code for video format
+        codec: FOURCC code for video format
 
     Example:
         ```python
         import supervision as sv
 
-        video_info = sv.VideoInfo.from_video_path(<SOURCE_VIDEO_PATH>)
-        frames_generator = sv.get_video_frames_generator(<SOURCE_VIDEO_PATH>)
+        video_info = sv.VideoInfo.from_video_path("<SOURCE_VIDEO_PATH>")
+        frames_generator = sv.get_video_frames_generator("<SOURCE_VIDEO_PATH>")
 
-        with sv.VideoSink(target_path=<TARGET_VIDEO_PATH>, video_info=video_info) as sink:
+        with sv.VideoSink(target_path="<TARGET_VIDEO_PATH>", video_info=video_info) as sink:
             for frame in frames_generator:
                 sink.write_frame(frame=frame)
         ```
@@ -89,11 +102,11 @@ class VideoSink:
         self.__codec = codec
         self.__writer = None
 
-    def __enter__(self):
+    def __enter__(self) -> VideoSink:
         try:
             self.__fourcc = cv2.VideoWriter_fourcc(*self.__codec)
         except TypeError as e:
-            print(str(e) + ". Defaulting to mp4v...")
+            logger.warning("%s. Defaulting to mp4v...", str(e))
             self.__fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         self.__writer = cv2.VideoWriter(
             self.target_path,
@@ -103,23 +116,97 @@ class VideoSink:
         )
         return self
 
-    def write_frame(self, frame: np.ndarray):
+    def write_frame(self, frame: npt.NDArray[np.uint8]) -> None:
         """
         Writes a single video frame to the target video file.
 
         Args:
-            frame (np.ndarray): The video frame to be written to the file. The frame
+            frame: The video frame to be written to the file. The frame
                 must be in BGR color format.
         """
-        self.__writer.write(frame)
+        if self.__writer is not None:
+            self.__writer.write(frame)
 
-    def __exit__(self, exc_type, exc_value, exc_traceback):
-        self.__writer.release()
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        exc_traceback: Any,
+    ) -> None:
+        if self.__writer is not None:
+            self.__writer.release()
+
+
+def _mux_audio(source_path: str, video_path: str) -> None:
+    """Mux audio from `source_path` into `video_path` in-place using ffmpeg.
+
+    Args:
+        source_path: Path to the original video file containing the audio stream.
+        video_path: Path to the video-only file to be updated with audio.
+    """
+    ffmpeg_path = shutil.which("ffmpeg")
+    if ffmpeg_path is None:
+        logger.warning(
+            "ffmpeg not found on PATH. Audio will not be preserved. "
+            "Install ffmpeg to enable audio preservation."
+        )
+        return
+
+    tmp_path = None
+    try:
+        tmp_fd, tmp_path = tempfile.mkstemp(
+            suffix=os.path.splitext(video_path)[1],
+            dir=os.path.dirname(os.path.abspath(video_path)),
+        )
+        os.close(tmp_fd)
+        result = subprocess.run(  # noqa: S603
+            [
+                ffmpeg_path,
+                "-y",
+                "-loglevel",
+                "error",
+                "-nostats",
+                "-i",
+                video_path,
+                "-i",
+                source_path,
+                "-c:v",
+                "copy",
+                "-c:a",
+                "copy",
+                "-map",
+                "0:v:0",
+                "-map",
+                "1:a:0?",
+                "-shortest",
+                tmp_path,
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            timeout=300,
+        )
+        if result.returncode != 0:
+            stderr_msg = result.stderr.decode(errors="replace").strip()
+            logger.warning(
+                "ffmpeg failed to mux audio (return code %d)%s. "
+                "The output video will not have audio.",
+                result.returncode,
+                f": {stderr_msg}" if stderr_msg else "",
+            )
+            return
+        os.replace(tmp_path, video_path)
+    except Exception as exc:
+        logger.warning(
+            "Audio muxing failed: %s. Output video will not have audio.", exc
+        )
+    finally:
+        if tmp_path is not None and os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
 
 def _validate_and_setup_video(
     source_path: str, start: int, end: int | None, iterative_seek: bool = False
-):
+) -> tuple[cv2.VideoCapture, int, int]:
     video = cv2.VideoCapture(source_path)
     if not video.isOpened():
         raise Exception(f"Could not open video at {source_path}")
@@ -147,31 +234,31 @@ def get_video_frames_generator(
     start: int = 0,
     end: int | None = None,
     iterative_seek: bool = False,
-) -> Generator[np.ndarray]:
+) -> Generator[npt.NDArray[np.uint8], None, None]:
     """
     Get a generator that yields the frames of the video.
 
     Args:
-        source_path (str): The path of the video file.
-        stride (int): Indicates the interval at which frames are returned,
+        source_path: The path of the video file.
+        stride: Indicates the interval at which frames are returned,
             skipping stride - 1 frames between each.
-        start (int): Indicates the starting position from which
+        start: Indicates the starting position from which
             video should generate frames
-        end (Optional[int]): Indicates the ending position at which video
+        end: Indicates the ending position at which video
             should stop generating frames. If None, video will be read to the end.
-        iterative_seek (bool): If True, the generator will seek to the
+        iterative_seek: If True, the generator will seek to the
             `start` frame by grabbing each frame, which is much slower. This is a
             workaround for videos that don't open at all when you set the `start` value.
 
     Returns:
-        (Generator[np.ndarray, None, None]): A generator that yields the
+        A generator that yields the
             frames of the video.
 
     Examples:
         ```python
         import supervision as sv
 
-        for frame in sv.get_video_frames_generator(source_path=<SOURCE_VIDEO_PATH>):
+        for frame in sv.get_video_frames_generator(source_path="<SOURCE_VIDEO_PATH>"):
             ...
         ```
     """
@@ -183,7 +270,8 @@ def get_video_frames_generator(
         success, frame = video.read()
         if not success or frame_position >= end:
             break
-        yield frame
+        if frame is not None:
+            yield frame
         for _ in range(stride - 1):
             success = video.grab()
             if not success:
@@ -195,64 +283,177 @@ def get_video_frames_generator(
 def process_video(
     source_path: str,
     target_path: str,
-    callback: Callable[[np.ndarray, int], np.ndarray],
+    callback: Callable[[npt.NDArray[np.uint8], int], npt.NDArray[np.uint8]],
+    *,
     max_frames: int | None = None,
+    prefetch: int = 32,
+    writer_buffer: int = 32,
     show_progress: bool = False,
     progress_message: str = "Processing video",
+    preserve_audio: bool = False,
 ) -> None:
     """
-    Process a video file by applying a callback function on each frame
-        and saving the result to a target video file.
+    Process video frames asynchronously using a threaded pipeline.
+
+    This function orchestrates a three-stage pipeline to optimize video processing
+    throughput:
+
+    1. Reader thread: Continuously reads frames from the source video file and
+       enqueues them into a bounded queue (`frame_read_queue`). The queue size is
+       limited by the `prefetch` parameter to control memory usage.
+    2. Main thread (Processor): Dequeues frames from `frame_read_queue`, applies the
+       user-defined `callback` function to process each frame, then enqueues the
+       processed frames into another bounded queue (`frame_write_queue`) for writing.
+       The processing happens in the main thread, simplifying use of stateful objects
+       without synchronization.
+    3. Writer thread: Dequeues processed frames from `frame_write_queue` and writes
+       them sequentially to the output video file.
 
     Args:
-        source_path (str): The path to the source video file.
-        target_path (str): The path to the target video file.
-        callback (Callable[[np.ndarray, int], np.ndarray]): A function that takes in
-            a numpy ndarray representation of a video frame and an
-            int index of the frame and returns a processed numpy ndarray
-            representation of the frame.
-        max_frames (Optional[int]): The maximum number of frames to process.
-        show_progress (bool): Whether to show a progress bar.
-        progress_message (str): The message to display in the progress bar.
+        source_path: Path to the input video file.
+        target_path: Path where the processed video will be saved.
+        callback: Function called for
+            each frame, accepting the frame as a numpy array and its zero-based index,
+            returning the processed frame.
+        max_frames: Optional maximum number of frames to process.
+            If None, the entire video is processed (default).
+        prefetch: Maximum number of frames buffered by the reader thread.
+            Controls memory use; default is 32.
+        writer_buffer: Maximum number of frames buffered before writing.
+            Controls output buffer size; default is 32.
+        show_progress: Whether to display a tqdm progress bar during processing.
+            Default is False.
+        progress_message: Description shown in the progress bar.
+        preserve_audio: If True, copy the audio stream from `source_path` into
+            `target_path` after frame processing. Requires `ffmpeg` on PATH
+            (e.g. `apt install ffmpeg`, `brew install ffmpeg`). If ffmpeg is
+            not found or the mux step fails, a warning is logged and the output
+            video is saved without audio — no exception is raised. Audio is
+            truncated to match the processed video duration. Default is False.
 
-    Examples:
+    Returns:
+        None
+
+    Example:
         ```python
         import supervision as sv
+        from rfdetr import RFDETRMedium
 
-        def callback(scene: np.ndarray, index: int) -> np.ndarray:
-            ...
+        model = RFDETRMedium()
 
-        process_video(
-            source_path=<SOURCE_VIDEO_PATH>,
-            target_path=<TARGET_VIDEO_PATH>,
-            callback=callback
+        def callback(frame, frame_index):
+            return model.predict(frame)
+
+        sv.process_video(
+            source_path="source.mp4",
+            target_path="target.mp4",
+            callback=callback,
+            preserve_audio=True,
         )
         ```
     """
-    source_video_info = VideoInfo.from_video_path(video_path=source_path)
-    video_frames_generator = get_video_frames_generator(
-        source_path=source_path, end=max_frames
+    video_info = VideoInfo.from_video_path(video_path=source_path)
+    total_frames = (
+        min(video_info.total_frames or 0, max_frames)
+        if max_frames is not None
+        else video_info.total_frames or 0
     )
-    with VideoSink(target_path=target_path, video_info=source_video_info) as sink:
-        total_frames = (
-            min(source_video_info.total_frames, max_frames)
-            if max_frames is not None
-            else source_video_info.total_frames
+
+    frame_read_queue: Queue[tuple[int, npt.NDArray[np.uint8]] | None] = Queue(
+        maxsize=prefetch
+    )
+    frame_write_queue: Queue[npt.NDArray[np.uint8] | None] = Queue(
+        maxsize=writer_buffer
+    )
+
+    def reader_thread() -> None:
+        frame_generator = get_video_frames_generator(
+            source_path=source_path,
+            end=max_frames,
         )
-        for index, frame in enumerate(
-            tqdm(
-                video_frames_generator,
-                total=total_frames,
-                disable=not show_progress,
-                desc=progress_message,
+        for frame_index, frame in enumerate(frame_generator):
+            frame_read_queue.put((frame_index, frame))
+        frame_read_queue.put(None)
+
+    def writer_thread(video_sink: VideoSink) -> None:
+        while True:
+            frame = frame_write_queue.get()
+            if frame is None:
+                break
+            video_sink.write_frame(frame=frame)
+
+    reader_worker = threading.Thread(target=reader_thread, daemon=True)
+    with VideoSink(target_path=target_path, video_info=video_info) as video_sink:
+        writer_worker = threading.Thread(
+            target=writer_thread,
+            args=(video_sink,),
+            daemon=True,
+        )
+
+        reader_worker.start()
+        writer_worker.start()
+
+        progress_bar = tqdm(
+            total=total_frames,
+            disable=not show_progress,
+            desc=progress_message,
+        )
+
+        exception_in_worker: Exception | None = None
+        read_finished = False
+
+        try:
+            while True:
+                read_item = frame_read_queue.get()
+                if read_item is None:
+                    read_finished = True
+                    break
+
+                frame_index, frame = read_item
+                try:
+                    processed_frame = callback(frame, frame_index)
+                    frame_write_queue.put(processed_frame)
+                    progress_bar.update(1)
+                except Exception as exc:
+                    exception_in_worker = exc
+                    break
+        finally:
+            try:
+                frame_write_queue.put(None, timeout=1)
+            except Full:
+                # Queue is full; this is a best-effort attempt to enqueue the sentinel.
+                # If we cannot enqueue it, the writer thread will still complete based
+                # on previously queued frames or other shutdown conditions.
+                pass
+            if not read_finished:
+                while True:
+                    # Use timeout to prevent indefinite blocking if reader thread fails
+                    try:
+                        read_item = frame_read_queue.get(timeout=1)
+                        if read_item is None:
+                            break
+                    # If we timeout waiting for a frame, only assume failure if reader
+                    # thread is no longer alive. Otherwise, keep waiting as the reader
+                    # may simply be slow (for example, due to a slow source).
+                    except Empty:
+                        if not reader_worker.is_alive():
+                            break
+                        # Reader is still alive; continue waiting for frames.
+                        continue
+            reader_worker.join(timeout=10)
+            writer_worker.join(timeout=10)
+            progress_bar.close()
+            if exception_in_worker is not None:
+                raise exception_in_worker
+
+    if preserve_audio:
+        if writer_worker.is_alive():
+            logger.warning(
+                "Writer thread did not finish in time; skipping audio mux "
+                "to avoid reading an incomplete output file."
             )
-        ):
-            result_frame = callback(frame, index)
-            sink.write_frame(frame=result_frame)
         else:
-            for index, frame in enumerate(video_frames_generator):
-                result_frame = callback(frame, index)
-                sink.write_frame(frame=result_frame)
+            _mux_audio(source_path=source_path, video_path=target_path)
 
 
 class FPSMonitor:
@@ -263,14 +464,15 @@ class FPSMonitor:
     def __init__(self, sample_size: int = 30):
         """
         Args:
-            sample_size (int): The maximum number of observations for latency
+            sample_size: The maximum number of observations for latency
                 benchmarking.
 
         Examples:
             ```python
             import supervision as sv
 
-            frames_generator = sv.get_video_frames_generator(source_path=<SOURCE_FILE_PATH>)
+            frames_generator = sv.get_video_frames_generator(
+                source_path="<SOURCE_FILE_PATH>")
             fps_monitor = sv.FPSMonitor()
 
             for frame in frames_generator:
@@ -278,8 +480,8 @@ class FPSMonitor:
                 fps_monitor.tick()
                 fps = fps_monitor.fps
             ```
-        """  # noqa: E501 // docs
-        self.all_timestamps = deque(maxlen=sample_size)
+        """
+        self.all_timestamps: deque[float] = deque(maxlen=sample_size)
 
     @property
     def fps(self) -> float:
@@ -287,7 +489,7 @@ class FPSMonitor:
         Computes and returns the average FPS based on the stored time stamps.
 
         Returns:
-            float: The average FPS. Returns 0.0 if no time stamps are stored.
+            The average FPS. Returns 0.0 if no time stamps are stored.
         """
         if not self.all_timestamps:
             return 0.0

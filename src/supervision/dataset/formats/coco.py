@@ -1,7 +1,8 @@
 import os
+import warnings
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Union, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -9,11 +10,13 @@ import numpy.typing as npt
 from supervision.dataset.utils import (
     approximate_mask_with_polygons,
     map_detections_class_id,
-    mask_to_rle,
-    rle_to_mask,
 )
 from supervision.detection.core import Detections
-from supervision.detection.utils.converters import polygon_to_mask
+from supervision.detection.utils.converters import (
+    mask_to_rle,
+    polygon_to_mask,
+    rle_to_mask,
+)
 from supervision.detection.utils.masks import contains_holes, contains_multiple_segments
 from supervision.utils.file import read_json_file, save_json_file
 from supervision.utils.image import load_image_shape_quick
@@ -21,8 +24,10 @@ from supervision.utils.image import load_image_shape_quick
 if TYPE_CHECKING:
     from supervision.dataset.core import DetectionDataset
 
+CocoDict = dict[str, Any]
 
-def coco_categories_to_classes(coco_categories: list[dict]) -> list[str]:
+
+def coco_categories_to_classes(coco_categories: list[CocoDict]) -> list[str]:
     return [
         category["name"]
         for category in sorted(coco_categories, key=lambda category: category["id"])
@@ -30,7 +35,7 @@ def coco_categories_to_classes(coco_categories: list[dict]) -> list[str]:
 
 
 def build_coco_class_index_mapping(
-    coco_categories: list[dict], target_classes: list[str]
+    coco_categories: list[CocoDict], target_classes: list[str]
 ) -> dict[int, int]:
     source_class_to_index = {
         category["name"]: category["id"] for category in coco_categories
@@ -41,7 +46,7 @@ def build_coco_class_index_mapping(
     }
 
 
-def classes_to_coco_categories(classes: list[str]) -> list[dict]:
+def classes_to_coco_categories(classes: list[str]) -> list[CocoDict]:
     return [
         {
             "id": class_id,
@@ -53,9 +58,9 @@ def classes_to_coco_categories(classes: list[str]) -> list[dict]:
 
 
 def group_coco_annotations_by_image_id(
-    coco_annotations: list[dict],
-) -> dict[int, list[dict]]:
-    annotations = {}
+    coco_annotations: list[CocoDict],
+) -> dict[int, list[CocoDict]]:
+    annotations: dict[int, list[CocoDict]] = {}
     for annotation in coco_annotations:
         image_id = annotation["image_id"]
         if image_id not in annotations:
@@ -65,30 +70,56 @@ def group_coco_annotations_by_image_id(
 
 
 def coco_annotations_to_masks(
-    image_annotations: list[dict], resolution_wh: tuple[int, int]
+    image_annotations: list[CocoDict], resolution_wh: tuple[int, int]
 ) -> npt.NDArray[np.bool_]:
-    return np.array(
-        [
-            rle_to_mask(
-                rle=np.array(image_annotation["segmentation"]["counts"]),
-                resolution_wh=resolution_wh,
+    height, width = resolution_wh[1], resolution_wh[0]
+    empty_mask: npt.NDArray[np.bool_] = np.zeros((height, width), dtype=bool)
+    masks = []
+
+    for image_annotation in image_annotations:
+        segmentation = image_annotation.get("segmentation")
+        if not segmentation:
+            # `force_masks=True` may request masks even for bbox-only annotations.
+            # Keep detection count aligned by emitting an empty mask for that object.
+            masks.append(empty_mask.copy())
+            continue
+
+        if image_annotation.get("iscrowd", 0):
+            masks.append(
+                rle_to_mask(rle=segmentation["counts"], resolution_wh=resolution_wh)
             )
-            if image_annotation["iscrowd"]
-            else polygon_to_mask(
-                polygon=np.reshape(
-                    np.asarray(image_annotation["segmentation"], dtype=np.int32),
-                    (-1, 2),
-                ),
-                resolution_wh=resolution_wh,
+            continue
+
+        if not isinstance(segmentation, list):
+            masks.append(empty_mask.copy())
+            continue
+        polygons = segmentation if isinstance(segmentation[0], list) else [segmentation]
+
+        object_mask = empty_mask.copy()
+        for polygon in polygons:
+            polygon_array: npt.NDArray[np.int32] = np.reshape(
+                np.asarray(polygon, dtype=np.int32), (-1, 2)
             )
-            for image_annotation in image_annotations
-        ],
-        dtype=bool,
-    )
+            if polygon_array.size == 0:
+                warnings.warn(
+                    "Skipping empty polygon while loading COCO segmentation for "
+                    f"annotation id={image_annotation.get('id')}.",
+                    stacklevel=2,
+                )
+                continue
+            # COCO polygon segmentation can contain multiple disjoint parts.
+            # Merge all parts into a single per-object mask.
+            object_mask |= polygon_to_mask(
+                polygon=polygon_array, resolution_wh=resolution_wh
+            ).astype(bool)
+
+        masks.append(object_mask)
+
+    return np.asarray(masks, dtype=bool)
 
 
 def coco_annotations_to_detections(
-    image_annotations: list[dict],
+    image_annotations: list[CocoDict],
     resolution_wh: tuple[int, int],
     with_masks: bool,
     use_iscrowd: bool = True,
@@ -100,10 +131,10 @@ def coco_annotations_to_detections(
         image_annotation["category_id"] for image_annotation in image_annotations
     ]
     xyxy = [image_annotation["bbox"] for image_annotation in image_annotations]
-    xyxy = np.asarray(xyxy)
+    xyxy = np.asarray(xyxy, dtype=np.float32)
     xyxy[:, 2:4] += xyxy[:, 0:2]
 
-    data = dict()
+    data: dict[str, npt.NDArray[np.generic]] = {}
     if use_iscrowd:
         iscrowd = [
             image_annotation["iscrowd"] for image_annotation in image_annotations
@@ -132,42 +163,58 @@ def detections_to_coco_annotations(
     min_image_area_percentage: float = 0.0,
     max_image_area_percentage: float = 1.0,
     approximation_percentage: float = 0.75,
-) -> tuple[list[dict], int]:
-    coco_annotations = []
-    for xyxy, mask, _, class_id, _, _ in detections:
+) -> tuple[list[CocoDict], int]:
+    coco_annotations: list[CocoDict] = []
+    for xyxy, mask, _, class_id, _, data in detections:
+        if class_id is None:
+            raise ValueError("Detections must include class_id for COCO export.")
         box_width, box_height = xyxy[2] - xyxy[0], xyxy[3] - xyxy[1]
-        segmentation = []
-        iscrowd = 0
+        segmentation: Union[list[list[float]], dict[str, list[int]]] = []
         if mask is not None:
-            iscrowd = contains_holes(mask=mask) or contains_multiple_segments(mask=mask)
+            if "iscrowd" in data:
+                iscrowd = int(np.asarray(data["iscrowd"]).item())
+            else:
+                iscrowd = int(
+                    contains_holes(mask=mask) or contains_multiple_segments(mask=mask)
+                )
 
             if iscrowd:
                 segmentation = {
-                    "counts": mask_to_rle(mask=mask),
+                    "counts": cast(list[int], mask_to_rle(mask=mask, compressed=False)),
                     "size": list(mask.shape[:2]),
                 }
             elif mask.sum() == 0:
                 segmentation = []
             else:
-                approximate = approximate_mask_with_polygons(
+                polygons = approximate_mask_with_polygons(
                     mask=mask,
                     min_image_area_percentage=min_image_area_percentage,
                     max_image_area_percentage=max_image_area_percentage,
                     approximation_percentage=approximation_percentage,
                 )
-                # if max is a few pixels, approximation can return an
-                # empty list, we assume this means the mask should
-                # be thrown away anyway
-                if len(approximate) > 0:
-                    segmentation = [list(approximate[0].flatten())]
+                # Small/noisy masks can be filtered out by approximation settings.
+                # Guard against empty output and keep a valid COCO annotation record.
+                if polygons:
+                    segmentation = [list(polygons[0].flatten())]
                 else:
+                    warnings.warn(
+                        "Skipping COCO polygon segmentation for annotation "
+                        f"id={annotation_id} because mask approximation "
+                        "returned no polygons.",
+                        stacklevel=2,
+                    )
                     segmentation = []
+
+        else:
+            iscrowd = int(np.asarray(data.get("iscrowd", 0)).item())
+
+        area: float = float(np.asarray(data.get("area", box_width * box_height)).item())
         coco_annotation = {
             "id": annotation_id,
             "image_id": image_id,
             "category_id": int(class_id),
             "bbox": [xyxy[0], xyxy[1], box_width, box_height],
-            "area": box_width * box_height,
+            "area": area,
             "segmentation": segmentation,
             "iscrowd": iscrowd,
         }
@@ -200,11 +247,11 @@ def get_coco_class_index_mapping(annotations_path: str) -> dict[int, int]:
         - Returns a dictionary mapping: `{new_class_id: original_COCO_class_id}`.
 
     Args:
-        annotations_path (str): Path to COCO JSON annotations file
+        annotations_path: Path to COCO JSON annotations file
         (e.g., `instances_val2017.json`).
 
     Returns:
-        Dict[int, int]: A mapping from new class id (sequential ranging from 0 to 79)
+        A mapping from new class id (sequential ranging from 0 to 79)
         to original COCO class id (1 to 90 with skipped ids).
     """
     coco_data = read_json_file(annotations_path)
@@ -222,18 +269,33 @@ def load_coco_annotations(
     use_iscrowd: bool = True,
 ) -> tuple[list[str], list[str], dict[str, Detections]]:
     """
-    Load COCO format annotations and return classes, image paths, and detections.
+    Load COCO annotations and convert them to `Detections`.
+
+    If `force_masks` is `False`, masks are still loaded for images whose annotations
+    include a `segmentation` field. This keeps mask handling consistent with other
+    dataset loaders that infer masks from annotation content.
+
     Args:
-        images_directory_path: Path to directory containing images. If None, uses
-            parent directory of annotations_path.
-        annotations_path: Path to COCO format JSON annotations file.
-        force_masks: If True, forces loading of segmentation masks.
-        use_iscrowd: If True, includes crowd annotations.
+        images_directory_path: Path to the image directory.
+        annotations_path: Path to COCO JSON annotations.
+        force_masks: If `True`, always attempt to load masks.
+        use_iscrowd: If `True`, include `iscrowd` and `area` in detection data.
+
     Returns:
-        Tuple containing:
-            - List of class names
-            - List of image file paths
-            - Dictionary mapping image paths to Detections objects
+        A tuple of `(classes, image_paths, annotations)`.
+
+    Raises:
+        ValueError: If any annotation's ``file_name`` resolves to the images
+            directory itself, to a path outside the images directory (e.g. via
+            ``../`` traversal or an absolute path), or to a subdirectory instead
+            of a regular image file.
+
+    Note:
+        Each annotation's ``file_name`` is validated against
+        ``images_directory_path`` before loading. Annotations that reference
+        paths outside the directory are rejected to prevent path-traversal
+        attacks when loading user-supplied annotation files. Symlinked images
+        pointing outside the resolved images directory are also rejected.
     """
     coco_data = read_json_file(file_path=annotations_path)
     classes = coco_categories_to_classes(coco_categories=coco_data["categories"])
@@ -249,6 +311,7 @@ def load_coco_annotations(
 
     images = []
     annotations = {}
+    images_directory_resolved = Path(images_directory_path).resolve()
 
     for coco_image in coco_images:
         image_name, image_width, image_height = (
@@ -261,11 +324,40 @@ def load_coco_annotations(
             image_path = str((Path(annotations_path).parent / image_name).resolve())
         else:
             image_path = str((Path(images_directory_path) / image_name).resolve())
+        try:
+            resolved_image_path = Path(image_path).resolve()
+        except (OSError, ValueError) as exc:
+            raise ValueError(
+                f"COCO annotation refers to image {image_name!r}, which "
+                f"produces an invalid path: {exc}"
+            ) from exc
+        if resolved_image_path == images_directory_resolved:
+            raise ValueError(
+                f"COCO annotation refers to image {image_name!r}, which "
+                f"resolves to the images directory itself "
+                f"({images_directory_resolved}). Expected a path to an "
+                "image file."
+            )
+        if images_directory_resolved not in resolved_image_path.parents:
+            raise ValueError(
+                f"COCO annotation refers to image {image_name!r}, which "
+                f"resolves to {resolved_image_path} — outside the images "
+                f"directory {images_directory_resolved}."
+            )
+        if resolved_image_path.is_dir():
+            raise ValueError(
+                f"COCO annotation refers to image {image_name!r}, which "
+                f"resolves to directory {resolved_image_path}. Expected a "
+                "path to an image file."
+            )
 
+        with_masks = force_masks or any(
+            _with_seg_mask(annotation) for annotation in image_annotations
+        )
         annotation = coco_annotations_to_detections(
             image_annotations=image_annotations,
             resolution_wh=(image_width, image_height),
-            with_masks=force_masks,
+            with_masks=with_masks,
             use_iscrowd=use_iscrowd,
         )
 
@@ -278,6 +370,10 @@ def load_coco_annotations(
         annotations[image_path] = annotation
 
     return classes, images, annotations
+
+
+def _with_seg_mask(annotation: dict[str, Any]) -> bool:
+    return bool(annotation.get("segmentation"))
 
 
 def save_coco_annotations(

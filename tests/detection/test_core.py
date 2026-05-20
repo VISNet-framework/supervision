@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from contextlib import ExitStack as DoesNotRaise
 
 import numpy as np
@@ -7,7 +8,8 @@ import pytest
 
 from supervision.detection.core import Detections, merge_inner_detection_object_pair
 from supervision.geometry.core import Position
-from tests.test_utils import mock_detections
+from supervision.utils.internal import SupervisionWarnings
+from tests.helpers import _create_detections
 
 PREDICTIONS = np.array(
     [
@@ -129,21 +131,49 @@ TEST_DET_DIFFERENT_METADATA = Detections(
 )
 
 
+@pytest.mark.parametrize("mask_dtype", [bool, np.bool_])
+def test_detections_bool_mask_types_do_not_warn(mask_dtype) -> None:
+    with warnings.catch_warnings(record=True) as recorded_warnings:
+        warnings.simplefilter("always")
+        Detections(
+            xyxy=np.array([[1, 2, 3, 4]]),
+            mask=np.array([[[1, 0], [0, 1]]], dtype=mask_dtype),
+        )
+    assert not any(
+        warning.category is SupervisionWarnings for warning in recorded_warnings
+    )
+
+
+def test_detections_non_bool_mask_warns_with_migration_path() -> None:
+    with pytest.warns(
+        SupervisionWarnings,
+        match="supervision-0.28.0.*ValueError.*astype\\(bool\\)",
+    ):
+        Detections(
+            xyxy=np.array([[1, 2, 3, 4]]),
+            mask=np.array([[[1, 0], [0, 1]]], dtype=np.uint8),
+        )
+
+
 @pytest.mark.parametrize(
-    "detections, index, expected_result, exception",
+    ("detections", "index", "expected_result", "exception"),
     [
+        # Scenario: Filter detections by class ID using a boolean mask.
+        # Expected: Only detections matching the class ID are retained.
         (
             DETECTIONS,
             DETECTIONS.class_id == 0,
-            mock_detections(
+            _create_detections(
                 xyxy=[[2254, 906, 2447, 1353]], confidence=[0.90538], class_id=[0]
             ),
             DoesNotRaise(),
-        ),  # take only detections with class_id = 0
+        ),
+        # Scenario: Filter detections by confidence score threshold.
+        # Expected: Only high-confidence detections are kept, filtering out noise.
         (
             DETECTIONS,
             DETECTIONS.confidence > 0.5,
-            mock_detections(
+            _create_detections(
                 xyxy=[
                     [2254, 906, 2447, 1353],
                     [2049, 1133, 2226, 1371],
@@ -153,7 +183,9 @@ TEST_DET_DIFFERENT_METADATA = Detections(
                 class_id=[0, 56, 39],
             ),
             DoesNotRaise(),
-        ),  # take only detections with confidence > 0.5
+        ),
+        # Scenario: Select all detections using a full boolean mask.
+        # Expected: Result is identical to input.
         (
             DETECTIONS,
             np.array(
@@ -161,7 +193,9 @@ TEST_DET_DIFFERENT_METADATA = Detections(
             ),
             DETECTIONS,
             DoesNotRaise(),
-        ),  # take all detections
+        ),
+        # Scenario: Select no detections using an empty boolean mask.
+        # Expected: An empty Detections object with correct shapes.
         (
             DETECTIONS,
             np.array(
@@ -174,62 +208,84 @@ TEST_DET_DIFFERENT_METADATA = Detections(
                 class_id=np.array([], dtype=int),
             ),
             DoesNotRaise(),
-        ),  # take no detections
+        ),
+        # Scenario: Select specific detections using a list of integer indices.
+        # Expected: Only requested indices are returned in specified order.
         (
             DETECTIONS,
             [0, 2],
-            mock_detections(
+            _create_detections(
                 xyxy=[[2254, 906, 2447, 1353], [727, 1224, 838, 1601]],
                 confidence=[0.90538, 0.51119],
                 class_id=[0, 39],
             ),
             DoesNotRaise(),
-        ),  # take only first and third detection using List[int] index
+        ),
+        # Scenario: Select specific detections using a NumPy array of indices.
+        # Expected: Only requested indices are returned.
         (
             DETECTIONS,
             np.array([0, 2]),
-            mock_detections(
+            _create_detections(
                 xyxy=[[2254, 906, 2447, 1353], [727, 1224, 838, 1601]],
                 confidence=[0.90538, 0.51119],
                 class_id=[0, 39],
             ),
             DoesNotRaise(),
-        ),  # take only first and third detection using np.ndarray index
+        ),
+        # Scenario: Select a single detection using an integer index.
+        # Expected: A Detections object containing only that element.
         (
             DETECTIONS,
             0,
-            mock_detections(
+            _create_detections(
                 xyxy=[[2254, 906, 2447, 1353]], confidence=[0.90538], class_id=[0]
             ),
             DoesNotRaise(),
-        ),  # take only first detection by index
+        ),
+        # Scenario: Select a range of detections using a slice.
+        # Expected: Detections within the slice range are returned.
         (
             DETECTIONS,
             slice(1, 3),
-            mock_detections(
+            _create_detections(
                 xyxy=[[2049, 1133, 2226, 1371], [727, 1224, 838, 1601]],
                 confidence=[0.59002, 0.51119],
                 class_id=[56, 39],
             ),
             DoesNotRaise(),
-        ),  # take only first detection by index slice (1, 3)
-        (DETECTIONS, 10, None, pytest.raises(IndexError)),  # index out of range
-        (DETECTIONS, [0, 2, 10], None, pytest.raises(IndexError)),  # index out of range
-        (DETECTIONS, np.array([0, 2, 10]), None, pytest.raises(IndexError)),
+        ),
+        # Scenario: Index out of range.
+        # Expected: IndexError is raised.
+        (DETECTIONS, 10, None, pytest.raises(IndexError, match="index 10 is out")),
+        (
+            DETECTIONS,
+            [0, 2, 10],
+            None,
+            pytest.raises(IndexError, match="out of bounds for axis 0"),
+        ),
+        (
+            DETECTIONS,
+            np.array([0, 2, 10]),
+            None,
+            pytest.raises(IndexError, match="axis 0 with size"),
+        ),
         (
             DETECTIONS,
             np.array(
                 [True, True, True, True, True, True, True, True, True, True, True]
             ),
             None,
-            pytest.raises(IndexError),
+            pytest.raises(IndexError, match="boolean index did not match"),
         ),
+        # Scenario: Filter an empty Detections object.
+        # Expected: Returns an empty Detections object without crashing.
         (
             Detections.empty(),
             np.isin(Detections.empty()["class_name"], ["cat", "dog"]),
             Detections.empty(),
             DoesNotRaise(),
-        ),  # Filter an empty detections by specific class names
+        ),
     ],
 )
 def test_getitem(
@@ -238,13 +294,18 @@ def test_getitem(
     expected_result: Detections | None,
     exception: Exception,
 ) -> None:
+    """
+    Ensures that `Detections.__getitem__` (indexing/slicing) works correctly for various
+    input types. This is a core feature that allows users to filter and manipulate
+    detection results easily.
+    """
     with exception:
         result = detections[index]
         assert result == expected_result
 
 
 @pytest.mark.parametrize(
-    "detections_list, expected_result, exception",
+    ("detections_list", "expected_result", "exception"),
     [
         ([], Detections.empty(), DoesNotRaise()),  # empty detections list
         (
@@ -264,9 +325,9 @@ def test_getitem(
         ),  # single detection with fields
         (
             [TEST_DET_NONE],
-            TEST_DET_NONE,
+            Detections.empty(),
             DoesNotRaise(),
-        ),  # Single weakly-defined detection
+        ),  # Single weakly-defined detection: now correctly treated as empty
         (
             [TEST_DET_1, TEST_DET_2],
             TEST_DET_1_2,
@@ -287,38 +348,38 @@ def test_getitem(
         ),  # Single detection and empty-array fields
         (
             [TEST_DET_ZERO_LENGTH, TEST_DET_ZERO_LENGTH],
-            TEST_DET_ZERO_LENGTH,
+            Detections.empty(),
             DoesNotRaise(),
-        ),  # Zero-length fields across all Detections
+        ),  # Zero-length fields: all treated as empty, result is canonical empty
         (
             [
                 TEST_DET_1,
                 TEST_DET_NONE,
             ],
-            None,
-            pytest.raises(ValueError),
-        ),  # Empty detection, but not Detections.empty()
+            TEST_DET_1,
+            DoesNotRaise(),
+        ),  # Empty detection stripped; non-empty detection returned intact
         # Errors: Non-zero-length differently defined keys & data
         (
             [TEST_DET_1, TEST_DET_DIFFERENT_FIELDS],
             None,
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="confidence' fields must be None"),
         ),  # Non-empty detections with different fields
         (
             [TEST_DET_1, TEST_DET_DIFFERENT_DATA],
             None,
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="same keys to merge"),
         ),  # Non-empty detections with different data keys
         (
             [
-                mock_detections(
+                _create_detections(
                     xyxy=[[10, 10, 20, 20]],
                     class_id=[1],
                     mask=[np.zeros((4, 4), dtype=bool)],
                 ),
                 Detections.empty(),
             ],
-            mock_detections(
+            _create_detections(
                 xyxy=np.array([[10, 10, 20, 20]]),
                 class_id=[1],
                 mask=[np.zeros((4, 4), dtype=bool)],
@@ -352,7 +413,7 @@ def test_getitem(
                 Detections(xyxy=np.array([[30, 30, 40, 40]]), class_id=np.array([2])),
             ],
             None,
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="metadata dictionaries must have the same"),
         ),  # Empty and non-empty metadata
         (
             [
@@ -403,7 +464,9 @@ def test_getitem(
                 ),
             ],
             None,
-            pytest.raises(ValueError),
+            pytest.raises(
+                ValueError, match="Conflicting metadata for key: 'source'\\."
+            ),
         ),  # Different metadata values
         (
             [
@@ -432,7 +495,7 @@ def test_getitem(
                 ),
             ],
             None,
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="metadata for key: 'source'"),
         ),  # Inconsistent types in metadata values
         (
             [
@@ -444,7 +507,7 @@ def test_getitem(
                 ),
             ],
             None,
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="same keys to merge"),
         ),  # Metadata key mismatch
         (
             [
@@ -501,7 +564,7 @@ def test_getitem(
                 ),
             ],
             None,
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="calibration_matrix"),
         ),  # Mismatching 2D numpy arrays in metadata
     ],
 )
@@ -516,7 +579,7 @@ def test_merge(
 
 
 @pytest.mark.parametrize(
-    "detections, anchor, expected_result, exception",
+    ("detections", "anchor", "expected_result", "exception"),
     [
         (
             Detections.empty(),
@@ -525,61 +588,61 @@ def test_merge(
             DoesNotRaise(),
         ),  # empty detections
         (
-            mock_detections(xyxy=[[10, 10, 20, 20]]),
+            _create_detections(xyxy=[[10, 10, 20, 20]]),
             Position.CENTER,
             np.array([[15, 15]], dtype=np.float32),
             DoesNotRaise(),
         ),  # single detection; center anchor
         (
-            mock_detections(xyxy=[[10, 10, 20, 20], [20, 20, 30, 30]]),
+            _create_detections(xyxy=[[10, 10, 20, 20], [20, 20, 30, 30]]),
             Position.CENTER,
             np.array([[15, 15], [25, 25]], dtype=np.float32),
             DoesNotRaise(),
         ),  # two detections; center anchor
         (
-            mock_detections(xyxy=[[10, 10, 20, 20], [20, 20, 30, 30]]),
+            _create_detections(xyxy=[[10, 10, 20, 20], [20, 20, 30, 30]]),
             Position.CENTER_LEFT,
             np.array([[10, 15], [20, 25]], dtype=np.float32),
             DoesNotRaise(),
         ),  # two detections; center left anchor
         (
-            mock_detections(xyxy=[[10, 10, 20, 20], [20, 20, 30, 30]]),
+            _create_detections(xyxy=[[10, 10, 20, 20], [20, 20, 30, 30]]),
             Position.CENTER_RIGHT,
             np.array([[20, 15], [30, 25]], dtype=np.float32),
             DoesNotRaise(),
         ),  # two detections; center right anchor
         (
-            mock_detections(xyxy=[[10, 10, 20, 20], [20, 20, 30, 30]]),
+            _create_detections(xyxy=[[10, 10, 20, 20], [20, 20, 30, 30]]),
             Position.TOP_CENTER,
             np.array([[15, 10], [25, 20]], dtype=np.float32),
             DoesNotRaise(),
         ),  # two detections; top center anchor
         (
-            mock_detections(xyxy=[[10, 10, 20, 20], [20, 20, 30, 30]]),
+            _create_detections(xyxy=[[10, 10, 20, 20], [20, 20, 30, 30]]),
             Position.TOP_LEFT,
             np.array([[10, 10], [20, 20]], dtype=np.float32),
             DoesNotRaise(),
         ),  # two detections; top left anchor
         (
-            mock_detections(xyxy=[[10, 10, 20, 20], [20, 20, 30, 30]]),
+            _create_detections(xyxy=[[10, 10, 20, 20], [20, 20, 30, 30]]),
             Position.TOP_RIGHT,
             np.array([[20, 10], [30, 20]], dtype=np.float32),
             DoesNotRaise(),
         ),  # two detections; top right anchor
         (
-            mock_detections(xyxy=[[10, 10, 20, 20], [20, 20, 30, 30]]),
+            _create_detections(xyxy=[[10, 10, 20, 20], [20, 20, 30, 30]]),
             Position.BOTTOM_CENTER,
             np.array([[15, 20], [25, 30]], dtype=np.float32),
             DoesNotRaise(),
         ),  # two detections; bottom center anchor
         (
-            mock_detections(xyxy=[[10, 10, 20, 20], [20, 20, 30, 30]]),
+            _create_detections(xyxy=[[10, 10, 20, 20], [20, 20, 30, 30]]),
             Position.BOTTOM_LEFT,
             np.array([[10, 20], [20, 30]], dtype=np.float32),
             DoesNotRaise(),
         ),  # two detections; bottom left anchor
         (
-            mock_detections(xyxy=[[10, 10, 20, 20], [20, 20, 30, 30]]),
+            _create_detections(xyxy=[[10, 10, 20, 20], [20, 20, 30, 30]]),
             Position.BOTTOM_RIGHT,
             np.array([[20, 20], [30, 30]], dtype=np.float32),
             DoesNotRaise(),
@@ -598,7 +661,7 @@ def test_get_anchor_coordinates(
 
 
 @pytest.mark.parametrize(
-    "detections_a, detections_b, expected_result",
+    ("detections_a", "detections_b", "expected_result"),
     [
         (
             Detections.empty(),
@@ -606,38 +669,38 @@ def test_get_anchor_coordinates(
             True,
         ),  # empty detections
         (
-            mock_detections(xyxy=[[10, 10, 20, 20]]),
-            mock_detections(xyxy=[[10, 10, 20, 20]]),
+            _create_detections(xyxy=[[10, 10, 20, 20]]),
+            _create_detections(xyxy=[[10, 10, 20, 20]]),
             True,
         ),  # detections with xyxy field
         (
-            mock_detections(xyxy=[[10, 10, 20, 20]], confidence=[0.5]),
-            mock_detections(xyxy=[[10, 10, 20, 20]], confidence=[0.5]),
+            _create_detections(xyxy=[[10, 10, 20, 20]], confidence=[0.5]),
+            _create_detections(xyxy=[[10, 10, 20, 20]], confidence=[0.5]),
             True,
         ),  # detections with xyxy, confidence fields
         (
-            mock_detections(xyxy=[[10, 10, 20, 20]], confidence=[0.5]),
-            mock_detections(xyxy=[[10, 10, 20, 20]]),
+            _create_detections(xyxy=[[10, 10, 20, 20]], confidence=[0.5]),
+            _create_detections(xyxy=[[10, 10, 20, 20]]),
             False,
         ),  # detection with xyxy field + detection with xyxy, confidence fields
         (
-            mock_detections(xyxy=[[10, 10, 20, 20]], data={"test": [1]}),
-            mock_detections(xyxy=[[10, 10, 20, 20]], data={"test": [1]}),
+            _create_detections(xyxy=[[10, 10, 20, 20]], data={"test": [1]}),
+            _create_detections(xyxy=[[10, 10, 20, 20]], data={"test": [1]}),
             True,
         ),  # detections with xyxy, data fields
         (
-            mock_detections(xyxy=[[10, 10, 20, 20]], data={"test": [1]}),
-            mock_detections(xyxy=[[10, 10, 20, 20]]),
+            _create_detections(xyxy=[[10, 10, 20, 20]], data={"test": [1]}),
+            _create_detections(xyxy=[[10, 10, 20, 20]]),
             False,
         ),  # detection with xyxy field + detection with xyxy, data fields
         (
-            mock_detections(xyxy=[[10, 10, 20, 20]], data={"test_1": [1]}),
-            mock_detections(xyxy=[[10, 10, 20, 20]], data={"test_2": [1]}),
+            _create_detections(xyxy=[[10, 10, 20, 20]], data={"test_1": [1]}),
+            _create_detections(xyxy=[[10, 10, 20, 20]], data={"test_2": [1]}),
             False,
         ),  # detections with xyxy, and different data field names
         (
-            mock_detections(xyxy=[[10, 10, 20, 20]], data={"test_1": [1]}),
-            mock_detections(xyxy=[[10, 10, 20, 20]], data={"test_1": [3]}),
+            _create_detections(xyxy=[[10, 10, 20, 20]], data={"test_1": [1]}),
+            _create_detections(xyxy=[[10, 10, 20, 20]], data={"test_1": [3]}),
             False,
         ),  # detections with xyxy, and different data field values
     ],
@@ -649,40 +712,40 @@ def test_equal(
 
 
 @pytest.mark.parametrize(
-    "detection_1, detection_2, expected_result, exception",
+    ("detection_1", "detection_2", "expected_result", "exception"),
     [
         (
-            mock_detections(
+            _create_detections(
                 xyxy=[[10, 10, 30, 30]],
             ),
-            mock_detections(
+            _create_detections(
                 xyxy=[[10, 10, 30, 30]],
             ),
-            mock_detections(
+            _create_detections(
                 xyxy=[[10, 10, 30, 30]],
             ),
             DoesNotRaise(),
         ),  # Merge with self
         (
-            mock_detections(
+            _create_detections(
                 xyxy=[[10, 10, 30, 30]],
             ),
             Detections.empty(),
             None,
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="exactly 1 detected object"),
         ),  # merge with empty: error
         (
-            mock_detections(
+            _create_detections(
                 xyxy=[[10, 10, 30, 30]],
             ),
-            mock_detections(
+            _create_detections(
                 xyxy=[[10, 10, 30, 30], [40, 40, 60, 60]],
             ),
             None,
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="Both Detections should have"),
         ),  # merge with 2+ objects: error
         (
-            mock_detections(
+            _create_detections(
                 xyxy=[[10, 10, 30, 30]],
                 confidence=[0.1],
                 class_id=[1],
@@ -690,7 +753,7 @@ def test_equal(
                 tracker_id=[1],
                 data={"key_1": [1]},
             ),
-            mock_detections(
+            _create_detections(
                 xyxy=[[20, 20, 40, 40]],
                 confidence=[0.1],
                 class_id=[2],
@@ -698,7 +761,7 @@ def test_equal(
                 tracker_id=[2],
                 data={"key_2": [2]},
             ),
-            mock_detections(
+            _create_detections(
                 xyxy=[[10, 10, 40, 40]],
                 confidence=[0.1],
                 class_id=[1],
@@ -709,7 +772,7 @@ def test_equal(
             DoesNotRaise(),
         ),  # Same confidence - merge box & mask, tie-break to detection_1
         (
-            mock_detections(
+            _create_detections(
                 xyxy=[[0, 0, 20, 20]],
                 confidence=[0.1],
                 class_id=[1],
@@ -717,7 +780,7 @@ def test_equal(
                 tracker_id=[1],
                 data={"key_1": [1]},
             ),
-            mock_detections(
+            _create_detections(
                 xyxy=[[10, 10, 50, 50]],
                 confidence=[0.2],
                 class_id=[2],
@@ -725,7 +788,7 @@ def test_equal(
                 tracker_id=[2],
                 data={"key_2": [2]},
             ),
-            mock_detections(
+            _create_detections(
                 xyxy=[[0, 0, 50, 50]],
                 confidence=[(1 * 0.1 + 4 * 0.2) / 5],
                 class_id=[2],
@@ -736,7 +799,7 @@ def test_equal(
             DoesNotRaise(),
         ),  # Different confidence, different area
         (
-            mock_detections(
+            _create_detections(
                 xyxy=[[10, 10, 30, 30]],
                 confidence=None,
                 class_id=[1],
@@ -744,7 +807,7 @@ def test_equal(
                 tracker_id=[1],
                 data={"key_1": [1]},
             ),
-            mock_detections(
+            _create_detections(
                 xyxy=[[20, 20, 40, 40]],
                 confidence=None,
                 class_id=[2],
@@ -752,7 +815,7 @@ def test_equal(
                 tracker_id=[2],
                 data={"key_2": [2]},
             ),
-            mock_detections(
+            _create_detections(
                 xyxy=[[10, 10, 40, 40]],
                 confidence=None,
                 class_id=[1],
@@ -763,46 +826,46 @@ def test_equal(
             DoesNotRaise(),
         ),  # No confidence at all
         (
-            mock_detections(
+            _create_detections(
                 xyxy=[[0, 0, 20, 20]],
                 confidence=None,
             ),
-            mock_detections(
+            _create_detections(
                 xyxy=[[10, 10, 30, 30]],
                 confidence=[0.2],
             ),
             None,
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="Field 'confidence'"),
         ),  # confidence: None + [x]
         (
-            mock_detections(
+            _create_detections(
                 xyxy=[[0, 0, 20, 20]],
                 mask=[np.array([[1, 1, 0], [1, 1, 0], [0, 0, 0]], dtype=bool)],
             ),
-            mock_detections(
+            _create_detections(
                 xyxy=[[10, 10, 30, 30]],
                 mask=None,
             ),
             None,
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="Field 'mask'"),
         ),  # mask: None + [x]
         (
-            mock_detections(xyxy=[[0, 0, 20, 20]], tracker_id=[1]),
-            mock_detections(
+            _create_detections(xyxy=[[0, 0, 20, 20]], tracker_id=[1]),
+            _create_detections(
                 xyxy=[[10, 10, 30, 30]],
                 tracker_id=None,
             ),
             None,
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="Field 'tracker_id'"),
         ),  # tracker_id: None + []
         (
-            mock_detections(xyxy=[[0, 0, 20, 20]], class_id=[1]),
-            mock_detections(
+            _create_detections(xyxy=[[0, 0, 20, 20]], class_id=[1]),
+            _create_detections(
                 xyxy=[[10, 10, 30, 30]],
                 class_id=None,
             ),
             None,
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="Field 'class_id'"),
         ),  # class_id: None + []
     ],
 )
@@ -815,3 +878,58 @@ def test_merge_inner_detection_object_pair(
     with exception:
         result = merge_inner_detection_object_pair(detection_1, detection_2)
         assert result == expected_result
+
+
+@pytest.mark.parametrize(
+    ("detections", "expected"),
+    [
+        (
+            Detections.empty(),
+            True,
+        ),  # canonical empty
+        (
+            Detections(
+                xyxy=np.array([[0, 0, 10, 10]]),
+                class_id=np.array([1]),
+                confidence=np.array([0.9]),
+            ),
+            False,
+        ),  # non-empty, no tracker_id
+        (
+            Detections(
+                xyxy=np.array([[0, 0, 10, 10], [0, 0, 20, 30]]),
+                class_id=np.array([1, 2]),
+                confidence=np.array([0.6, 0.7]),
+                tracker_id=np.array([1, 2]),
+            )[np.array([False, False])],
+            True,
+        ),  # filtered to empty with tracker_id — the regression case from #2195
+        (
+            Detections(
+                xyxy=np.array([[0, 0, 10, 10], [0, 0, 20, 30]]),
+                class_id=np.array([1, 2]),
+                confidence=np.array([0.6, 0.7]),
+                tracker_id=np.array([1, 2]),
+            )[np.array([True, False])],
+            False,
+        ),  # one detection remaining after filter
+        (
+            Detections(
+                xyxy=np.array([[0, 0, 10, 10], [0, 0, 20, 30]]),
+                mask=np.zeros((2, 4, 4), dtype=bool),
+                class_id=np.array([1, 2]),
+            )[np.array([False, False])],
+            True,
+        ),  # filtered to empty with mask — same bug could affect mask field
+    ],
+    ids=[
+        "canonical_empty",
+        "non_empty_no_tracker",
+        "filtered_empty_with_tracker",
+        "one_remaining_after_filter",
+        "filtered_empty_with_mask",
+    ],
+)
+def test_is_empty(detections: Detections, expected: bool) -> None:
+    """Verify is_empty() returns True iff the Detections object has zero detections."""
+    assert detections.is_empty() == expected

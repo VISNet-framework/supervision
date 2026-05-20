@@ -1,5 +1,11 @@
 ---
 comments: true
+description: Load, split, merge, and convert computer vision datasets between YOLO, COCO, and Pascal VOC formats using supervision's DetectionDataset.
+authors:
+  - name: Piotr Skalski
+    role: Computer Vision Engineer, Roboflow
+    github: https://github.com/SkalskiP
+date_modified: 2026-04-22
 ---
 
 With Supervision, you can load and manipulate classification, object detection, and
@@ -32,8 +38,8 @@ your workspace ID, project ID, and version number.
     roboflow.login()
 
     rf = roboflow.Roboflow()
-    project = rf.workspace('<WORKSPACE_ID>').project('<PROJECT_ID>')
-    dataset = project.version('<PROJECT_VERSION>').download("coco")
+    project = rf.workspace("<WORKSPACE_ID>").project("<PROJECT_ID>")
+    dataset = project.version("<PROJECT_VERSION>").download("coco")
     ```
 
 === "YOLO"
@@ -44,8 +50,8 @@ your workspace ID, project ID, and version number.
     roboflow.login()
 
     rf = roboflow.Roboflow()
-    project = rf.workspace('<WORKSPACE_ID>').project('<PROJECT_ID>')
-    dataset = project.version('<PROJECT_VERSION>').download("yolov8")
+    project = rf.workspace("<WORKSPACE_ID>").project("<PROJECT_ID>")
+    dataset = project.version("<PROJECT_VERSION>").download("yolov8")
     ```
 
 === "Pascal VOC"
@@ -56,8 +62,8 @@ your workspace ID, project ID, and version number.
     roboflow.login()
 
     rf = roboflow.Roboflow()
-    project = rf.workspace('<WORKSPACE_ID>').project('<PROJECT_ID>')
-    dataset = project.version('<PROJECT_VERSION>').download("voc")
+    project = rf.workspace("<WORKSPACE_ID>").project("<PROJECT_ID>")
+    dataset = project.version("<PROJECT_VERSION>").download("voc")
     ```
 
 ## Load Dataset
@@ -75,16 +81,16 @@ instances.
     import supervision as sv
 
     ds_train = sv.DetectionDataset.from_coco(
-        images_directory_path=f'{dataset.location}/train',
-        annotations_path=f'{dataset.location}/train/_annotations.coco.json',
+        images_directory_path=f"{dataset.location}/train",
+        annotations_path=f"{dataset.location}/train/_annotations.coco.json",
     )
     ds_valid = sv.DetectionDataset.from_coco(
-        images_directory_path=f'{dataset.location}/valid',
-        annotations_path=f'{dataset.location}/valid/_annotations.coco.json',
+        images_directory_path=f"{dataset.location}/valid",
+        annotations_path=f"{dataset.location}/valid/_annotations.coco.json",
     )
     ds_test = sv.DetectionDataset.from_coco(
-        images_directory_path=f'{dataset.location}/test',
-        annotations_path=f'{dataset.location}/test/_annotations.coco.json',
+        images_directory_path=f"{dataset.location}/test",
+        annotations_path=f"{dataset.location}/test/_annotations.coco.json",
     )
 
     ds_train.classes
@@ -102,19 +108,19 @@ instances.
     import supervision as sv
 
     ds_train = sv.DetectionDataset.from_yolo(
-        images_directory_path=f'{dataset.location}/train/images',
-        annotations_directory_path=f'{dataset.location}/train/labels',
-        data_yaml_path=f'{dataset.location}/data.yaml'
+        images_directory_path=f"{dataset.location}/train/images",
+        annotations_directory_path=f"{dataset.location}/train/labels",
+        data_yaml_path=f"{dataset.location}/data.yaml",
     )
     ds_valid = sv.DetectionDataset.from_yolo(
-        images_directory_path=f'{dataset.location}/valid/images',
-        annotations_directory_path=f'{dataset.location}/valid/labels',
-        data_yaml_path=f'{dataset.location}/data.yaml'
+        images_directory_path=f"{dataset.location}/valid/images",
+        annotations_directory_path=f"{dataset.location}/valid/labels",
+        data_yaml_path=f"{dataset.location}/data.yaml",
     )
     ds_test = sv.DetectionDataset.from_yolo(
-        images_directory_path=f'{dataset.location}/test/images',
-        annotations_directory_path=f'{dataset.location}/test/labels',
-        data_yaml_path=f'{dataset.location}/data.yaml'
+        images_directory_path=f"{dataset.location}/test/images",
+        annotations_directory_path=f"{dataset.location}/test/labels",
+        data_yaml_path=f"{dataset.location}/data.yaml",
     )
 
     ds_train.classes
@@ -132,16 +138,16 @@ instances.
     import supervision as sv
 
     ds_train = sv.DetectionDataset.from_pascal_voc(
-        images_directory_path=f'{dataset.location}/train/images',
-        annotations_directory_path=f'{dataset.location}/train/labels'
+        images_directory_path=f"{dataset.location}/train/images",
+        annotations_directory_path=f"{dataset.location}/train/labels",
     )
     ds_valid = sv.DetectionDataset.from_pascal_voc(
-        images_directory_path=f'{dataset.location}/valid/images',
-        annotations_directory_path=f'{dataset.location}/valid/labels'
+        images_directory_path=f"{dataset.location}/valid/images",
+        annotations_directory_path=f"{dataset.location}/valid/labels",
     )
     ds_test = sv.DetectionDataset.from_pascal_voc(
-        images_directory_path=f'{dataset.location}/test/images',
-        annotations_directory_path=f'{dataset.location}/test/labels'
+        images_directory_path=f"{dataset.location}/test/images",
+        annotations_directory_path=f"{dataset.location}/test/labels",
     )
 
     ds_train.classes
@@ -294,12 +300,12 @@ ds = sv.DetectionDataset(...)
 
 # Option 1
 for image_path, image, annotations in ds:
-    ... # Process each image and its annotations
+    ...  # Process each image and its annotations
 
 # Option 2
 for idx in range(len(ds)):
     image_path, image, annotations = ds[idx]
-    ... # Process the image and annotations at index `idx`
+    ...  # Process the image and annotations at index `idx`
 ```
 
 ## Visualize Dataset
@@ -331,12 +337,9 @@ for i in range(16):
     annotated_image = label_annotator.annotate(annotated_image, annotations, labels)
     annotated_images.append(annotated_image)
 
-grid = sv.create_tiles(
+sv.plot_images_grid(
     annotated_images,
     grid_size=(4, 4),
-    single_tile_size=(400, 400),
-    tile_padding_color=sv.Color.WHITE,
-    tile_margin_color=sv.Color.WHITE
 )
 ```
 
@@ -354,8 +357,8 @@ grid = sv.create_tiles(
     ds = sv.DetectionDataset(...)
 
     ds.as_coco(
-        images_directory_path='<IMAGE_DIRECTORY_PATH>',
-        annotations_path='<ANNOTATIONS_PATH>'
+        images_directory_path="<IMAGE_DIRECTORY_PATH>",
+        annotations_path="<ANNOTATIONS_PATH>",
     )
     ```
 
@@ -369,9 +372,9 @@ grid = sv.create_tiles(
     ds = sv.DetectionDataset(...)
 
     ds.as_yolo(
-        images_directory_path='<IMAGE_DIRECTORY_PATH>',
-        annotations_directory_path='<ANNOTATIONS_DIRECTORY_PATH>',
-        data_yaml_path='<DATA_YAML_PATH>'
+        images_directory_path="<IMAGE_DIRECTORY_PATH>",
+        annotations_directory_path="<ANNOTATIONS_DIRECTORY_PATH>",
+        data_yaml_path="<DATA_YAML_PATH>",
     )
     ```
 
@@ -385,8 +388,8 @@ grid = sv.create_tiles(
     ds = sv.DetectionDataset(...)
 
     ds.as_pascal_voc(
-        images_directory_path='<IMAGE_DIRECTORY_PATH>',
-        annotations_directory_path='<ANNOTATIONS_DIRECTORY_PATH>'
+        images_directory_path="<IMAGE_DIRECTORY_PATH>",
+        annotations_directory_path="<ANNOTATIONS_DIRECTORY_PATH>",
     )
     ```
 
@@ -398,16 +401,16 @@ increase the size and diversity of training datasets, leading to improved model
 performance and generalization.
 
 ```bash
-pip install augmentation
+pip install albumentations
 ```
 
 Albumentations provides a flexible and powerful API for image augmentation. The core of
-the library is the [`Compose`](https://albumentations.ai/docs/api_reference/full_reference/?h=compose#albumentations.core.composition.Compose)
+the library is the [`Compose`](https://albumentations.ai/docs/api-reference/albumentations/core/composition/#Compose)
 class, which allows you to chain multiple image transformations together. Each
 transformation is defined using a dedicated class, such as
-[`HorizontalFlip`](https://albumentations.ai/docs/api_reference/full_reference/?h=horizontalflip#albumentations.augmentations.geometric.transforms.HorizontalFlip),
-[`RandomBrightnessContrast`](https://albumentations.ai/docs/api_reference/full_reference/?h=horizontalflip#albumentations.augmentations.transforms.RandomBrightnessContrast),
-or [`Perspective`](https://albumentations.ai/docs/api_reference/full_reference/?h=horizontalflip#albumentations.augmentations.geometric.transforms.Perspective).
+[`HorizontalFlip`](https://albumentations.ai/docs/api-reference/albumentations/augmentations/geometric/flip/#HorizontalFlip),
+[`RandomBrightnessContrast`](https://albumentations.ai/docs/api-reference/albumentations/augmentations/pixel/transforms/#RandomBrightnessContrast),
+or [`Perspective`](https://albumentations.ai/docs/api-reference/albumentations/augmentations/geometric/transforms/#Perspective).
 
 ```python
 import albumentations as A
@@ -416,11 +419,11 @@ augmentation = A.Compose(
     transforms=[
         A.Perspective(p=0.1),
         A.HorizontalFlip(p=0.5),
-        A.RandomBrightnessContrast(p=0.5)
+        A.RandomBrightnessContrast(p=0.5),
     ],
     bbox_params=A.BboxParams(
-        format='pascal_voc',
-        label_fields=['category']
+        format="pascal_voc",
+        label_fields=["category"],
     ),
 )
 ```
@@ -440,15 +443,37 @@ _, original_image, original_annotations = ds[0]
 output = augmentation(
     image=original_image,
     bboxes=original_annotations.xyxy,
-    category=original_annotations.class_id
+    category=original_annotations.class_id,
 )
 
-augmented_image = output['image']
+augmented_image = output["image"]
 augmented_annotations = replace(
     original_annotations,
-    xyxy=np.array(output['bboxes']),
-    class_id=np.array(output['category'])
+    xyxy=np.array(output["bboxes"]),
+    class_id=np.array(output["category"]),
 )
 ```
 
 ![augment-dataset](https://media.roboflow.com/supervision-docs/augment-dataset.png)
+
+## Frequently Asked Questions
+
+### What dataset formats does supervision support?
+
+For detection datasets, supervision supports YOLO, COCO JSON, and Pascal VOC. Use `DetectionDataset.from_yolo()`, `from_coco()`, or `from_pascal_voc()` to load, and `as_yolo()`, `as_coco()`, or `as_pascal_voc()` to save. Classification datasets use `ClassificationDataset.from_folder_structure()` and `as_folder_structure()`.
+
+### Can I split a dataset into train/val/test sets?
+
+`DetectionDataset.split(split_ratio=0.8)` returns exactly two datasets: train (80%) and test (20%). If you need a validation set, split one of those subsets in a separate step.
+
+### Can I merge two datasets together?
+
+Yes. `DetectionDataset.merge([dataset_a, dataset_b])` combines multiple datasets into one. Useful for combining datasets from different sources.
+
+### What augmentations are available?
+
+Common augmentations such as flip, rotate, translate, scale, crop, color jitter, and Gaussian blur can be applied using an external library like Albumentations, as shown in the augmentation example above. Supervision does not provide an `sv.Augmenter` pipeline.
+
+## Author
+
+- [Piotr Skalski](https://github.com/SkalskiP) — Computer Vision Engineer, Roboflow

@@ -8,36 +8,31 @@ def edit_distance(string_1: str, string_2: str, case_sensitive: bool = True) -> 
     deletion, and substitution.
 
     Args:
-        string_1 (str): The source string to be transformed.
-        string_2 (str): The target string to transform into.
-        case_sensitive (bool, optional): Whether comparison should be case-sensitive.
+        string_1: The source string to be transformed.
+        string_2: The target string to transform into.
+        case_sensitive: Whether comparison should be case-sensitive.
             Defaults to True.
 
     Returns:
-        int: The minimum number of edits required to convert `string_1`
+        The minimum number of edits required to convert `string_1`
         into `string_2`.
 
     Examples:
-        ```python
-        import supervision as sv
+        ```pycon
+        >>> import supervision as sv
+        >>> sv.edit_distance("hello", "hello")
+        0
+        >>> sv.edit_distance("Test", "test", case_sensitive=True)
+        1
+        >>> sv.edit_distance("abc", "xyz")
+        3
+        >>> sv.edit_distance("hello", "")
+        5
+        >>> sv.edit_distance("", "")
+        0
+        >>> sv.edit_distance("hello world", "helloworld")
+        1
 
-        sv.edit_distance("hello", "hello")
-        # 0
-
-        sv.edit_distance("Test", "test", case_sensitive=True)
-        # 1
-
-        sv.edit_distance("abc", "xyz")
-        # 3
-
-        sv.edit_distance("hello", "")
-        # 5
-
-        sv.edit_distance("", "")
-        # 0
-
-        sv.edit_distance("hello world", "helloworld")
-        # 1
         ```
     """
     if not case_sensitive:
@@ -78,25 +73,25 @@ def fuzzy_match_index(
     to `query` is less than or equal to `threshold`.
 
     Args:
-        candidates (list[str]): List of strings to search.
-        query (str): String to compare against the candidates.
-        threshold (int): Maximum allowed edit distance for a match.
-        case_sensitive (bool, optional): Whether matching should be case-sensitive.
+        candidates: List of strings to search.
+        query: String to compare against the candidates.
+        threshold: Maximum allowed edit distance for a match.
+        case_sensitive: Whether matching should be case-sensitive.
 
     Returns:
-        Optional[int]: Index of the first matching string in candidates,
-            or None if no match is found.
+        Index of the first matching string in candidates,
+        or None if no match is found.
 
     Examples:
-        ```python
-        fuzzy_match_index(["cat", "dog", "rat"], "dat", threshold=1)
-        # 0
+        ```pycon
+        >>> from supervision.detection.utils.vlms import fuzzy_match_index
+        >>> fuzzy_match_index(["cat", "dog", "rat"], "dat", threshold=1)
+        0
+        >>> fuzzy_match_index(["alpha", "beta", "gamma"], "bata", threshold=1)
+        1
+        >>> fuzzy_match_index(["one", "two", "three"], "xyz", threshold=2) is None
+        True
 
-        fuzzy_match_index(["alpha", "beta", "gamma"], "bata", threshold=1)
-        # 1
-
-        fuzzy_match_index(["one", "two", "three"], "ten", threshold=2)
-        # None
         ```
     """
     for idx, candidate in enumerate(candidates):

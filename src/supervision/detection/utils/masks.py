@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from typing import Any, Literal, cast
+
 import cv2
 import numpy as np
 import numpy.typing as npt
+
+from supervision.detection.compact_mask import CompactMask
 
 
 def move_masks(
@@ -14,42 +18,39 @@ def move_masks(
     Offset the masks in an array by the specified (x, y) amount.
 
     Args:
-        masks (npt.NDArray[np.bool_]): A 3D array of binary masks corresponding to the
+        masks: A 3D array of binary masks corresponding to the
             predictions. Shape: `(N, H, W)`, where N is the number of predictions, and
             H, W are the dimensions of each mask.
-        offset (npt.NDArray[np.int32]): An array of shape `(2,)` containing int values
+        offset: An array of shape `(2,)` containing int values
             `[dx, dy]`. Supports both positive and negative values for bidirectional
             movement.
-        resolution_wh (Tuple[int, int]): The width and height of the desired mask
+        resolution_wh: The width and height of the desired mask
             resolution.
 
     Returns:
-        (npt.NDArray[np.bool_]) repositioned masks, optionally padded to the specified
-            shape.
+        Repositioned masks, optionally padded to the specified shape.
 
     Examples:
-        ```python
-        import numpy as np
-        import supervision as sv
+        ```pycon
+        >>> import numpy as np
+        >>> import supervision as sv
+        >>> mask = np.array([[[False, False, False, False],
+        ...                   [False, True,  True,  False],
+        ...                   [False, True,  True,  False],
+        ...                   [False, False, False, False]]], dtype=bool)
+        >>> offset = np.array([1, 1])
+        >>> sv.move_masks(mask, offset, resolution_wh=(4, 4))
+        array([[[False, False, False, False],
+                [False, False, False, False],
+                [False, False,  True,  True],
+                [False, False,  True,  True]]])
+        >>> offset = np.array([-2, 2])
+        >>> sv.move_masks(mask, offset, resolution_wh=(4, 4))
+        array([[[False, False, False, False],
+                [False, False, False, False],
+                [False, False, False, False],
+                [ True, False, False, False]]])
 
-        mask = np.array([[[False, False, False, False],
-                         [False, True,  True,  False],
-                         [False, True,  True,  False],
-                         [False, False, False, False]]], dtype=bool)
-
-        offset = np.array([1, 1])
-        sv.move_masks(mask, offset, resolution_wh=(4, 4))
-        # array([[[False, False, False, False],
-        #         [False, False, False, False],
-        #         [False, False,  True,  True],
-        #         [False, False,  True,  True]]], dtype=bool)
-
-        offset = np.array([-2, 2])
-        sv.move_masks(mask, offset, resolution_wh=(4, 4))
-        # array([[[False, False, False, False],
-        #         [False, False, False, False],
-        #         [False, False, False, False],
-        #         [True,  False, False, False]]], dtype=bool)
         ```
     """
     mask_array = np.full((masks.shape[0], resolution_wh[1], resolution_wh[0]), False)
@@ -86,19 +87,46 @@ def move_masks(
     return mask_array
 
 
-def calculate_masks_centroids(masks: np.ndarray) -> np.ndarray:
+def calculate_masks_centroids(
+    masks: npt.NDArray[Any] | CompactMask,
+) -> npt.NDArray[np.int_]:
     """
     Calculate the centroids of binary masks in a tensor.
 
-    Parameters:
-        masks (np.ndarray): A 3D NumPy array of shape (num_masks, height, width).
+    Args:
+        masks: A 3D NumPy array of shape (num_masks, height, width).
             Each 2D array in the tensor represents a binary mask.
+            Also accepts a :class:`~supervision.detection.compact_mask.CompactMask`.
 
     Returns:
         A 2D NumPy array of shape (num_masks, 2), where each row contains the x and y
             coordinates (in that order) of the centroid of the corresponding mask.
     """
-    num_masks, height, width = masks.shape
+    if isinstance(masks, CompactMask):
+        # Compute centroids per-crop to avoid materialising the full (N, H, W) array.
+        n = len(masks)
+        if n == 0:
+            return cast(npt.NDArray[np.int_], np.empty((0, 2), dtype=int))
+
+        centroids: npt.NDArray[np.float64] = np.zeros((n, 2), dtype=np.float64)
+        for i in range(n):
+            crop = masks.crop(i)
+            crop_h, crop_w = crop.shape
+            x1 = int(masks.offsets[i, 0])
+            y1 = int(masks.offsets[i, 1])
+            total = int(crop.sum())
+            if total == 0:
+                centroids[i] = [0.0, 0.0]
+                continue
+            # Match the +0.5 offset used by the dense implementation.
+            crop_rows, crop_cols = np.indices((crop_h, crop_w))
+            cx = float(np.sum((crop_cols + 0.5)[crop])) / total + x1
+            cy = float(np.sum((crop_rows + 0.5)[crop])) / total + y1
+            centroids[i] = [cx, cy]
+
+        return cast(npt.NDArray[np.int_], centroids.astype(int))
+
+    _num_masks, height, width = masks.shape
     total_pixels = masks.sum(axis=(1, 2))
 
     # offset for 1-based indexing
@@ -106,14 +134,18 @@ def calculate_masks_centroids(masks: np.ndarray) -> np.ndarray:
     # avoid division by zero for empty masks
     total_pixels[total_pixels == 0] = 1
 
-    def sum_over_mask(indices: np.ndarray, axis: tuple) -> np.ndarray:
-        return np.tensordot(masks, indices, axes=axis)
+    def sum_over_mask(
+        indices: npt.NDArray[np.floating], axis: tuple[list[int], list[int]]
+    ) -> npt.NDArray[np.floating]:
+        return cast(npt.NDArray[np.floating], np.tensordot(masks, indices, axes=axis))
 
-    aggregation_axis = ([1, 2], [0, 1])
+    aggregation_axis: tuple[list[int], list[int]] = ([1, 2], [0, 1])
     centroid_x = sum_over_mask(horizontal_indices, aggregation_axis) / total_pixels
     centroid_y = sum_over_mask(vertical_indices, aggregation_axis) / total_pixels
 
-    return np.column_stack((centroid_x, centroid_y)).astype(int)
+    return cast(
+        npt.NDArray[np.int_], np.column_stack((centroid_x, centroid_y)).astype(int)
+    )
 
 
 def contains_holes(mask: npt.NDArray[np.bool_]) -> bool:
@@ -122,38 +154,35 @@ def contains_holes(mask: npt.NDArray[np.bool_]) -> bool:
     foreground pixels).
 
     Args:
-        mask (npt.NDArray[np.bool_]): 2D binary mask where `True` indicates foreground
+        mask: 2D binary mask where `True` indicates foreground
             object and `False` indicates background.
 
     Returns:
         True if holes are detected, False otherwise.
 
     Examples:
-        ```python
-        import numpy as np
-        import supervision as sv
+        ```pycon
+        >>> import numpy as np
+        >>> import supervision as sv
+        >>> mask = np.array([
+        ...     [0, 0, 0, 0, 0],
+        ...     [0, 1, 1, 1, 0],
+        ...     [0, 1, 0, 1, 0],
+        ...     [0, 1, 1, 1, 0],
+        ...     [0, 0, 0, 0, 0]
+        ... ]).astype(bool)
+        >>> sv.contains_holes(mask=mask)
+        True
+        >>> mask = np.array([
+        ...     [0, 0, 0, 0, 0],
+        ...     [0, 1, 1, 1, 0],
+        ...     [0, 1, 1, 1, 0],
+        ...     [0, 1, 1, 1, 0],
+        ...     [0, 0, 0, 0, 0]
+        ... ]).astype(bool)
+        >>> sv.contains_holes(mask=mask)
+        False
 
-        mask = np.array([
-            [0, 0, 0, 0, 0],
-            [0, 1, 1, 1, 0],
-            [0, 1, 0, 1, 0],
-            [0, 1, 1, 1, 0],
-            [0, 0, 0, 0, 0]
-        ]).astype(bool)
-
-        sv.contains_holes(mask=mask)
-        # True
-
-        mask = np.array([
-            [0, 0, 0, 0, 0],
-            [0, 1, 1, 1, 0],
-            [0, 1, 1, 1, 0],
-            [0, 1, 1, 1, 0],
-            [0, 0, 0, 0, 0]
-        ]).astype(bool)
-
-        sv.contains_holes(mask=mask)
-        # False
         ```
 
     ![contains_holes](https://media.roboflow.com/supervision-docs/contains-holes.png){ align=center width="800" }
@@ -176,9 +205,9 @@ def contains_multiple_segments(
     Checks if the binary mask contains multiple unconnected foreground segments.
 
     Args:
-        mask (npt.NDArray[np.bool_]): 2D binary mask where `True` indicates foreground
+        mask: 2D binary mask where `True` indicates foreground
             object and `False` indicates background.
-        connectivity (int) : Default: 4 is 4-way connectivity, which means that
+        connectivity: Default: 4 is 4-way connectivity, which means that
             foreground pixels are the part of the same segment/component
             if their edges touch.
             Alternatively: 8 for 8-way connectivity, when foreground pixels are
@@ -191,33 +220,30 @@ def contains_multiple_segments(
         ValueError: If connectivity(int) parameter value is not 4 or 8.
 
     Examples:
-        ```python
-        import numpy as np
-        import supervision as sv
+        ```pycon
+        >>> import numpy as np
+        >>> import supervision as sv
+        >>> mask = np.array([
+        ...     [0, 0, 0, 0, 0, 0],
+        ...     [0, 1, 1, 0, 1, 1],
+        ...     [0, 1, 1, 0, 1, 1],
+        ...     [0, 0, 0, 0, 0, 0],
+        ...     [0, 1, 1, 1, 0, 0],
+        ...     [0, 1, 1, 1, 0, 0]
+        ... ]).astype(bool)
+        >>> sv.contains_multiple_segments(mask=mask, connectivity=4)
+        True
+        >>> mask = np.array([
+        ...     [0, 0, 0, 0, 0, 0],
+        ...     [0, 1, 1, 1, 1, 1],
+        ...     [0, 1, 1, 1, 1, 1],
+        ...     [0, 1, 1, 1, 1, 1],
+        ...     [0, 1, 1, 1, 1, 1],
+        ...     [0, 0, 0, 0, 0, 0]
+        ... ]).astype(bool)
+        >>> sv.contains_multiple_segments(mask=mask, connectivity=4)
+        False
 
-        mask = np.array([
-            [0, 0, 0, 0, 0, 0],
-            [0, 1, 1, 0, 1, 1],
-            [0, 1, 1, 0, 1, 1],
-            [0, 0, 0, 0, 0, 0],
-            [0, 1, 1, 1, 0, 0],
-            [0, 1, 1, 1, 0, 0]
-        ]).astype(bool)
-
-        sv.contains_multiple_segments(mask=mask, connectivity=4)
-        # True
-
-        mask = np.array([
-            [0, 0, 0, 0, 0, 0],
-            [0, 1, 1, 1, 1, 1],
-            [0, 1, 1, 1, 1, 1],
-            [0, 1, 1, 1, 1, 1],
-            [0, 1, 1, 1, 1, 1],
-            [0, 0, 0, 0, 0, 0]
-        ]).astype(bool)
-
-        sv.contains_multiple_segments(mask=mask, connectivity=4)
-        # False
         ```
 
     ![contains_multiple_segments](https://media.roboflow.com/supervision-docs/contains-multiple-segments.png){ align=center width="800" }
@@ -231,23 +257,23 @@ def contains_multiple_segments(
     number_of_labels, _ = cv2.connectedComponents(
         mask_uint8, labels, connectivity=connectivity
     )
-    return number_of_labels > 2
+    return bool(number_of_labels > 2)
 
 
-def resize_masks(masks: np.ndarray, max_dimension: int = 640) -> np.ndarray:
+def resize_masks(masks: npt.NDArray[Any], max_dimension: int = 640) -> npt.NDArray[Any]:
     """
     Resize all masks in the array to have a maximum dimension of max_dimension,
     maintaining aspect ratio.
 
     Args:
-        masks (np.ndarray): 3D array of binary masks with shape (N, H, W).
-        max_dimension (int): The maximum dimension for the resized masks.
+        masks: 3D array of binary masks with shape (N, H, W).
+        max_dimension: The maximum dimension for the resized masks.
 
     Returns:
-        np.ndarray: Array of resized masks.
+        Array of resized masks.
     """
-    max_height = np.max(masks.shape[1])
-    max_width = np.max(masks.shape[2])
+    max_height: int = masks.shape[1]
+    max_width: int = masks.shape[2]
     scale = min(max_dimension / max_height, max_dimension / max_width)
 
     new_height = int(scale * max_height)
@@ -260,3 +286,141 @@ def resize_masks(masks: np.ndarray, max_dimension: int = 640) -> np.ndarray:
     resized_masks = masks[:, yv, xv]
 
     return resized_masks.reshape(masks.shape[0], new_height, new_width)
+
+
+def filter_segments_by_distance(
+    mask: npt.NDArray[np.bool_],
+    absolute_distance: float | None = 100.0,
+    relative_distance: float | None = None,
+    connectivity: int = 8,
+    mode: Literal["edge", "centroid"] = "edge",
+) -> npt.NDArray[np.bool_]:
+    """
+    Keep the largest connected component and any other components within a distance
+    threshold.
+
+    Distance can be absolute in pixels or relative to the image diagonal.
+
+    Args:
+        mask: Boolean mask HxW.
+        absolute_distance: Max allowed distance in pixels to the main component.
+            Ignored if `relative_distance` is provided.
+        relative_distance: Fraction of the diagonal. If set, threshold = fraction * sqrt(H^2 + W^2).
+        connectivity: Defines which neighboring pixels are considered connected.
+            - 4-connectedness: Only orthogonal neighbors.
+              ```
+              [ ][X][ ]
+              [X][O][X]
+              [ ][X][ ]
+              ```
+            - 8-connectedness: Includes diagonal neighbors.
+              ```
+              [X][X][X]
+              [X][O][X]
+              [X][X][X]
+              ```
+            Default is 8.
+        mode: Defines how distance between components is measured.
+            - "edge": Uses distance between nearest edges (via distance transform).
+            - "centroid": Uses distance between component centroids.
+
+    Returns:
+        Boolean mask after filtering.
+
+    Examples:
+        ```pycon
+        >>> import numpy as np
+        >>> import supervision as sv
+        >>> mask = np.array([
+        ...     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        ...     [0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+        ...     [0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+        ...     [0, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
+        ...     [0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0],
+        ...     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        ...     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        ...     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        ...     [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0],
+        ...     [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0],
+        ...     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        ...     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        ... ], dtype=bool)
+        >>> sv.filter_segments_by_distance(
+        ...     mask,
+        ...     absolute_distance=3,
+        ...     mode="edge",
+        ...     connectivity=8
+        ... ).astype(int)
+        array([[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+               [0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+               [0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+               [0, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
+               [0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0],
+               [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+               [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+               [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+               [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+               [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+               [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+               [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]])
+
+        ```
+
+        The nearby 2x2 block at columns 6-7 is kept because its edge distance
+        is within 3 pixels. The distant block at columns 9-10 is removed.
+    """  # noqa E501 // docs
+    if mask.dtype != bool:
+        raise TypeError("mask must be boolean")
+
+    height, width = mask.shape
+    if not np.any(mask):
+        return mask.copy()
+
+    image = mask.astype(np.uint8)
+    num_labels: int
+    labels: npt.NDArray[np.int32]
+    stats: npt.NDArray[np.int32]
+    centroids: npt.NDArray[np.float64]
+    num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(
+        image, connectivity=connectivity
+    )
+
+    if num_labels <= 1:
+        return mask.copy()
+
+    areas = stats[1:, cv2.CC_STAT_AREA]
+    main_label = 1 + int(np.argmax(areas))
+
+    if relative_distance is not None:
+        diagonal = float(np.hypot(height, width))
+        threshold = float(relative_distance) * diagonal
+    elif absolute_distance is not None:
+        threshold = float(absolute_distance)
+    else:
+        raise ValueError("Either absolute_distance or relative_distance must be set.")
+
+    keep_labels: npt.NDArray[np.bool_] = np.zeros(num_labels, dtype=bool)
+    keep_labels[main_label] = True
+
+    if mode == "centroid":
+        differences = centroids[1:] - centroids[main_label]
+        distances = np.sqrt(np.sum(differences**2, axis=1))
+        nearby = 1 + np.where(distances <= threshold)[0]
+        keep_labels[nearby] = True
+    elif mode == "edge":
+        main_mask = (labels == main_label).astype(np.uint8)
+        inverse = 1 - main_mask
+        distance_transform = cv2.distanceTransform(inverse, cv2.DIST_L2, 3)
+        for label in range(1, num_labels):
+            if label == main_label:
+                continue
+            component = labels == label
+            if not np.any(component):
+                continue
+            min_distance = float(distance_transform[component].min())
+            if min_distance <= threshold:
+                keep_labels[label] = True
+    else:
+        raise ValueError("mode must be 'edge' or 'centroid'")
+
+    return keep_labels[labels]

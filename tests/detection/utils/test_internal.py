@@ -17,9 +17,16 @@ from supervision.detection.utils.internal import (
 TEST_MASK = np.zeros((1, 1000, 1000), dtype=bool)
 TEST_MASK[:, 300:351, 200:251] = True
 
+TEST_RLE_MASK = np.zeros((1, 4, 4), dtype=bool)
+TEST_RLE_MASK[0, 1:3, 1:3] = True
+
+TEST_RLE_NONCONTIGUOUS_MASK = np.zeros((1, 4, 4), dtype=bool)
+TEST_RLE_NONCONTIGUOUS_MASK[0, 0:2, 0:2] = True
+TEST_RLE_NONCONTIGUOUS_MASK[0, 3, 2:4] = True
+
 
 @pytest.mark.parametrize(
-    "roboflow_result, expected_result, exception",
+    ("roboflow_result", "expected_result", "exception"),
     [
         (
             {"predictions": [], "image": {"width": 1000, "height": 1000}},
@@ -219,6 +226,229 @@ TEST_MASK[:, 300:351, 200:251] = True
             ),
             DoesNotRaise(),
         ),  # two instance segmentation results - one correct, one incorrect
+        (
+            {
+                "predictions": [
+                    {
+                        "x": 1.5,
+                        "y": 1.5,
+                        "width": 2.0,
+                        "height": 2.0,
+                        "confidence": 0.9,
+                        "class_id": 0,
+                        "class": "person",
+                        "rle": {"size": [4, 4], "counts": "52203"},
+                    }
+                ],
+                "image": {"width": 4, "height": 4},
+            },
+            (
+                np.array([[0.5, 0.5, 2.5, 2.5]]),
+                np.array([0.9]),
+                np.array([0]),
+                TEST_RLE_MASK,
+                None,
+                {CLASS_NAME_DATA_FIELD: np.array(["person"])},
+            ),
+            DoesNotRaise(),
+        ),  # single RLE prediction with compressed string counts
+        (
+            {
+                "predictions": [
+                    {
+                        "x": 2.0,
+                        "y": 2.0,
+                        "width": 4.0,
+                        "height": 4.0,
+                        "confidence": 0.85,
+                        "class_id": 1,
+                        "class": "cat",
+                        "rle": {"size": [4, 4], "counts": "02203ON0"},
+                    }
+                ],
+                "image": {"width": 4, "height": 4},
+            },
+            (
+                np.array([[0.0, 0.0, 4.0, 4.0]]),
+                np.array([0.85]),
+                np.array([1]),
+                TEST_RLE_NONCONTIGUOUS_MASK,
+                None,
+                {CLASS_NAME_DATA_FIELD: np.array(["cat"])},
+            ),
+            DoesNotRaise(),
+        ),  # single RLE prediction with non-contiguous mask
+        (
+            {
+                "predictions": [
+                    {
+                        "x": 1.5,
+                        "y": 1.5,
+                        "width": 2.0,
+                        "height": 2.0,
+                        "confidence": 0.9,
+                        "class_id": 0,
+                        "class": "person",
+                        "rle": {"size": [4, 4], "counts": "52203"},
+                        "tracker_id": 5,
+                    }
+                ],
+                "image": {"width": 4, "height": 4},
+            },
+            (
+                np.array([[0.5, 0.5, 2.5, 2.5]]),
+                np.array([0.9]),
+                np.array([0]),
+                TEST_RLE_MASK,
+                np.array([5]),
+                {CLASS_NAME_DATA_FIELD: np.array(["person"])},
+            ),
+            DoesNotRaise(),
+        ),  # RLE prediction with tracker_id
+        (
+            {
+                "predictions": [
+                    {
+                        "x": 1.5,
+                        "y": 1.5,
+                        "width": 2.0,
+                        "height": 2.0,
+                        "confidence": 0.9,
+                        "class_id": 0,
+                        "class": "person",
+                        "rle_mask": {"size": [4, 4], "counts": "52203"},
+                    }
+                ],
+                "image": {"width": 4, "height": 4},
+            },
+            (
+                np.array([[0.5, 0.5, 2.5, 2.5]]),
+                np.array([0.9]),
+                np.array([0]),
+                TEST_RLE_MASK,
+                None,
+                {CLASS_NAME_DATA_FIELD: np.array(["person"])},
+            ),
+            DoesNotRaise(),
+        ),  # single RLE prediction with compressed string counts under rle_mask key
+        (
+            {
+                "predictions": [
+                    {
+                        "x": 1.5,
+                        "y": 1.5,
+                        "width": 2.0,
+                        "height": 2.0,
+                        "confidence": 0.9,
+                        "class_id": 0,
+                        "class": "person",
+                        "rle": "bad_string",
+                    }
+                ],
+                "image": {"width": 4, "height": 4},
+            },
+            (
+                np.array([[0.5, 0.5, 2.5, 2.5]]),
+                np.array([0.9]),
+                np.array([0]),
+                None,
+                None,
+                {CLASS_NAME_DATA_FIELD: np.array(["person"])},
+            ),
+            DoesNotRaise(),
+        ),  # malformed RLE payload should fall through to box-only detection
+        (
+            {
+                "predictions": [
+                    {
+                        "x": 1.5,
+                        "y": 1.5,
+                        "width": 2.0,
+                        "height": 2.0,
+                        "confidence": 0.9,
+                        "class_id": 0,
+                        "class": "person",
+                        "rle": {"size": [4, 4]},
+                    }
+                ],
+                "image": {"width": 4, "height": 4},
+            },
+            (
+                np.array([[0.5, 0.5, 2.5, 2.5]]),
+                np.array([0.9]),
+                np.array([0]),
+                None,
+                None,
+                {CLASS_NAME_DATA_FIELD: np.array(["person"])},
+            ),
+            DoesNotRaise(),
+        ),  # RLE dict missing counts falls through to box-only detection
+        (
+            {
+                "predictions": [
+                    {
+                        "x": 1.5,
+                        "y": 1.5,
+                        "width": 2.0,
+                        "height": 2.0,
+                        "confidence": 0.9,
+                        "class_id": 0,
+                        "class": "person",
+                        "rle": {"size": [4, 4], "counts": "!"},
+                    }
+                ],
+                "image": {"width": 4, "height": 4},
+            },
+            (
+                np.array([[0.5, 0.5, 2.5, 2.5]]),
+                np.array([0.9]),
+                np.array([0]),
+                None,
+                None,
+                {CLASS_NAME_DATA_FIELD: np.array(["person"])},
+            ),
+            DoesNotRaise(),
+        ),  # malformed compressed counts falls through to box-only detection
+        (
+            {
+                "predictions": [
+                    {
+                        "x": 1.5,
+                        "y": 1.5,
+                        "width": 2.0,
+                        "height": 2.0,
+                        "confidence": 0.9,
+                        "class_id": 0,
+                        "class": "person",
+                        "rle": {"size": [4, 4], "counts": "52203"},
+                    },
+                    {
+                        "x": 3.0,
+                        "y": 3.0,
+                        "width": 2.0,
+                        "height": 2.0,
+                        "confidence": 0.8,
+                        "class_id": 1,
+                        "class": "car",
+                    },
+                ],
+                "image": {"width": 4, "height": 4},
+            },
+            (
+                np.array([[0.5, 0.5, 2.5, 2.5], [2.0, 2.0, 4.0, 4.0]]),
+                np.array([0.9, 0.8]),
+                np.array([0, 1]),
+                # NOTE: known misalignment — masks has 1 entry, xyxy has 2.
+                # Mixed RLE + box-only batches produce mask arrays shorter than
+                # xyxy; constructing Detections from this result would raise
+                # ValueError. This is a pre-existing limitation shared by the
+                # polygon + box-only path.
+                TEST_RLE_MASK,
+                None,
+                {CLASS_NAME_DATA_FIELD: np.array(["person", "car"])},
+            ),
+            DoesNotRaise(),
+        ),  # mixed RLE + box-only batch — masks misaligned with xyxy (known limitation)
     ],
 )
 def test_process_roboflow_result(
@@ -251,7 +481,7 @@ def test_process_roboflow_result(
 
 
 @pytest.mark.parametrize(
-    "data_list, expected_result, exception",
+    ("data_list", "expected_result", "exception"),
     [
         (
             [],
@@ -336,7 +566,7 @@ def test_process_roboflow_result(
                 {"test_2": [3, 2, 1]},
             ],
             None,
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="same keys to merge"),
         ),  # two data dicts with different field names
         (
             [
@@ -382,7 +612,7 @@ def test_process_roboflow_result(
                 {"test_1": np.array([[3, 2, 1]])},
             ],
             None,
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="same number of dimensions"),
         ),  # two data dicts with the same field name and 1D and 2D arrays values
         (
             [
@@ -390,12 +620,12 @@ def test_process_roboflow_result(
                 {"test_1": np.array([3, 2, 1]), "test_2": np.array(["c", "b", "a"])},
             ],
             None,
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="equal length"),
         ),  # two data dicts with the same field name and different length arrays values
         (
             [{}, {"test_1": [1, 2, 3]}],
             None,
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="same keys to merge"),
         ),  # two data dicts; one empty and one non-empty dict
         (
             [{"test_1": [], "test_2": []}, {"test_1": [1, 2, 3], "test_2": [1, 2, 3]}],
@@ -405,7 +635,7 @@ def test_process_roboflow_result(
         (
             [{"test_1": []}, {"test_1": [1, 2, 3], "test_2": [4, 5, 6]}],
             None,
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="same keys to merge"),
         ),  # two data dicts; one empty and one non-empty dict; different keys
         (
             [
@@ -417,7 +647,7 @@ def test_process_roboflow_result(
                 {"test_1": [1, 2, 3], "test_2": [4, 5, 6]},
             ],
             None,
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="same keys to merge"),
         ),  # two data dicts; one with three keys, one with two keys
         (
             [
@@ -425,7 +655,7 @@ def test_process_roboflow_result(
                 {"test_1": [1, 2, 3], "test_2": [1, 2, 3]},
             ],
             None,
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="same keys to merge"),
         ),  # some keys missing in one dict
         (
             [
@@ -433,7 +663,7 @@ def test_process_roboflow_result(
                 {"test_1": [4, 5], "test_2": ["c", "d", "e"]},
             ],
             None,
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="equal length"),
         ),  # different value lengths for the same key
     ],
 )
@@ -445,7 +675,7 @@ def test_merge_data(
     with exception:
         result = merge_data(data_list=data_list)
         if expected_result is None:
-            assert False, f"Expected an error, but got result {result}"
+            pytest.fail(f"Expected an error, but got result {result}")
 
         for key in result:
             if isinstance(result[key], np.ndarray):
@@ -459,7 +689,7 @@ def test_merge_data(
 
 
 @pytest.mark.parametrize(
-    "data, index, expected_result, exception",
+    ("data", "index", "expected_result", "exception"),
     [
         ({}, 0, {}, DoesNotRaise()),  # empty data dict
         (
@@ -632,7 +862,7 @@ def test_get_data_item(
 
 
 @pytest.mark.parametrize(
-    "metadata_list, expected_result, exception",
+    ("metadata_list", "expected_result", "exception"),
     [
         # Identical metadata with a single key
         ([{"key1": "value1"}, {"key1": "value1"}], {"key1": "value1"}, DoesNotRaise()),
@@ -646,9 +876,17 @@ def test_get_data_item(
             DoesNotRaise(),
         ),
         # Conflicting values for the same key
-        ([{"key1": "value1"}, {"key1": "value2"}], None, pytest.raises(ValueError)),
+        (
+            [{"key1": "value1"}, {"key1": "value2"}],
+            None,
+            pytest.raises(ValueError, match="Conflicting metadata for key: 'key1'\\."),
+        ),
         # Different sets of keys across dictionaries
-        ([{"key1": "value1"}, {"key2": "value2"}], None, pytest.raises(ValueError)),
+        (
+            [{"key1": "value1"}, {"key2": "value2"}],
+            None,
+            pytest.raises(ValueError, match="same keys to merge"),
+        ),
         # Empty metadata list
         ([], {}, DoesNotRaise()),
         # Empty metadata dictionaries
@@ -705,21 +943,29 @@ def test_get_data_item(
             DoesNotRaise(),
         ),
         # Conflicting lists for the same key
-        ([{"key1": [1, 2, 3]}, {"key1": [4, 5, 6]}], None, pytest.raises(ValueError)),
+        (
+            [{"key1": [1, 2, 3]}, {"key1": [4, 5, 6]}],
+            None,
+            pytest.raises(ValueError, match="Conflicting metadata for key: 'key1'\\."),
+        ),
         # Conflicting numpy arrays for the same key
         (
             [{"key1": np.array([1, 2, 3])}, {"key1": np.array([4, 5, 6])}],
             None,
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="Conflicting metadata for key: 'key1':"),
         ),
         # Mixed data types: list and numpy array for the same key
         (
             [{"key1": [1, 2, 3]}, {"key1": np.array([1, 2, 3])}],
             None,
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="type\\(value\\)"),
         ),
         # Empty lists and numpy arrays for the same key
-        ([{"key1": []}, {"key1": np.array([])}], None, pytest.raises(ValueError)),
+        (
+            [{"key1": []}, {"key1": np.array([])}],
+            None,
+            pytest.raises(ValueError, match="type\\(other_value\\)"),
+        ),
         # Identical multi-dimensional lists across metadata dictionaries
         (
             [{"key1": [[1, 2], [3, 4]]}, {"key1": [[1, 2], [3, 4]]}],
@@ -739,7 +985,7 @@ def test_get_data_item(
         (
             [{"key1": [[1, 2], [3, 4]]}, {"key1": [[5, 6], [7, 8]]}],
             None,
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="Conflicting metadata for key: 'key1'\\."),
         ),
         # Conflicting multi-dimensional numpy arrays for the same key
         (
@@ -748,13 +994,13 @@ def test_get_data_item(
                 {"key1": np.arange(4, 8).reshape(2, 2)},
             ],
             None,
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="Conflicting metadata for key: 'key1':"),
         ),
         # Mixed types with multi-dimensional list and array for the same key
         (
             [{"key1": [[1, 2], [3, 4]]}, {"key1": np.arange(4).reshape(2, 2)}],
             None,
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="type\\(value\\)"),
         ),
         # Identical higher-dimensional (3D) numpy arrays across
         # metadata dictionaries
@@ -774,7 +1020,7 @@ def test_get_data_item(
                 {"key1": np.arange(8).reshape(4, 1, 2)},
             ],
             None,
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="Conflicting metadata for key: 'key1':"),
         ),
     ],
 )

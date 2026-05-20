@@ -1,10 +1,12 @@
 ---
 comments: true
+description: API reference for supervision's DetectionDataset and ClassificationDataset — load, merge, split, and convert datasets in YOLO, COCO, and VOC formats.
 ---
 
 # Datasets
 
 !!! warning
+
     Dataset API is still fluid and may change. If you use Dataset API in your project until further notice, freeze the
     `supervision` version in your `requirements.txt` or `setup.py`.
 

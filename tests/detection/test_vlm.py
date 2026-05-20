@@ -20,56 +20,56 @@ from supervision.detection.vlm import (
 
 
 @pytest.mark.parametrize(
-    "exception, result, resolution_wh, classes, expected_results",
+    ("exception", "result", "resolution_wh", "classes", "expected_results"),
     [
         (
             does_not_raise(),
             "",
             (1000, 1000),
             None,
-            (np.empty((0, 4)), None, np.empty(0).astype(str)),
+            (np.empty((0, 4)), np.empty((0,), dtype=int), np.empty(0).astype(str)),
         ),  # empty text
         (
             does_not_raise(),
             "",
             (1000, 1000),
             ["cat", "dog"],
-            (np.empty((0, 4)), None, np.empty(0).astype(str)),
+            (np.empty((0, 4)), np.empty((0,), dtype=int), np.empty(0).astype(str)),
         ),  # empty text, classes
         (
             does_not_raise(),
             "\n",
             (1000, 1000),
             None,
-            (np.empty((0, 4)), None, np.empty(0).astype(str)),
+            (np.empty((0, 4)), np.empty((0,), dtype=int), np.empty(0).astype(str)),
         ),  # newline only
         (
             does_not_raise(),
             "the quick brown fox jumps over the lazy dog.",
             (1000, 1000),
             None,
-            (np.empty((0, 4)), None, np.empty(0).astype(str)),
+            (np.empty((0, 4)), np.empty((0,), dtype=int), np.empty(0).astype(str)),
         ),  # random text, no location
         (
             does_not_raise(),
             "<loc0256><loc0768><loc0768> cat",
             (1000, 1000),
             None,
-            (np.empty((0, 4)), None, np.empty(0).astype(str)),
+            (np.empty((0, 4)), np.empty((0,), dtype=int), np.empty(0).astype(str)),
         ),  # partial location
         (
             does_not_raise(),
             "<loc0256><loc0256><loc0768><loc0768><loc0768> cat",
             (1000, 1000),
             None,
-            (np.empty((0, 4)), None, np.empty(0).astype(str)),
+            (np.empty((0, 4)), np.empty((0,), dtype=int), np.empty(0).astype(str)),
         ),  # extra loc
         (
             does_not_raise(),
             "<loc0256><loc0256><loc0768><loc0768>",
             (1000, 1000),
             None,
-            (np.empty((0, 4)), None, np.empty(0).astype(str)),
+            (np.empty((0, 4)), np.empty((0,), dtype=int), np.empty(0).astype(str)),
         ),  # no class
         (
             does_not_raise(),
@@ -170,14 +170,26 @@ from supervision.detection.vlm import (
             ),
         ),  # partial valid again
         (
-            pytest.raises(ValueError),
+            pytest.raises(
+                ValueError,
+                match=(
+                    r"Both dimensions in resolution must be positive\. "
+                    r"Got \(0, 1000\)"
+                ),
+            ),
             "<loc0256><loc0256><loc0768><loc0768> cat",
             (0, 1000),
             None,
             None,
         ),  # zero width -> ValueError
         (
-            pytest.raises(ValueError),
+            pytest.raises(
+                ValueError,
+                match=(
+                    r"Both dimensions in resolution must be positive\. "
+                    r"Got \(1000, -200\)"
+                ),
+            ),
             "<loc0256><loc0256><loc0768><loc0768> dog",
             (1000, -200),
             None,
@@ -202,7 +214,7 @@ def test_from_paligemma(
 
 
 @pytest.mark.parametrize(
-    "exception, result, input_wh, resolution_wh, classes, expected_results",
+    ("exception", "result", "input_wh", "resolution_wh", "classes", "expected_results"),
     [
         (
             does_not_raise(),
@@ -321,7 +333,50 @@ def test_from_paligemma(
             ),
         ),  # out-of-bounds box
         (
-            pytest.raises(ValueError),
+            does_not_raise(),
+            """[
+                {'bbox_2d': [10, 20, 110, 120], 'label': 'cat'}
+            ]""",
+            (640, 640),
+            (1280, 720),
+            None,
+            (
+                np.array([[20.0, 22.5, 220.0, 135.0]]),
+                None,
+                np.array(["cat"], dtype=str),
+            ),
+        ),  # python-style list, single quotes, no fences
+        (
+            does_not_raise(),
+            """```json
+            [
+                {"bbox_2d": [0, 0, 64, 64], "label": "dog"},
+                {"bbox_2d": [10, 20, 110, 120], "label": "cat"},
+                {"bbox_2d": [30, 40, 130, 140], "label":
+            """,
+            (640, 640),
+            (640, 640),
+            None,
+            (
+                np.array(
+                    [
+                        [0.0, 0.0, 64.0, 64.0],
+                        [10.0, 20.0, 110.0, 120.0],
+                    ],
+                    dtype=float,
+                ),
+                None,
+                np.array(["dog", "cat"], dtype=str),
+            ),
+        ),  # truncated response, last object unfinished, previous ones recovered
+        (
+            pytest.raises(
+                ValueError,
+                match=(
+                    r"Both dimensions in resolution must be positive\. "
+                    r"Got \(0, 640\)"
+                ),
+            ),
             """```json
             [
                 {"bbox_2d": [10, 20, 110, 120], "label": "cat"}
@@ -330,10 +385,16 @@ def test_from_paligemma(
             (0, 640),
             (1280, 720),
             None,
-            None,  # won't be compared because we expect an exception
-        ),  # zero input width -> ValueError
+            None,  # invalid input_wh
+        ),
         (
-            pytest.raises(ValueError),
+            pytest.raises(
+                ValueError,
+                match=(
+                    r"Both dimensions in resolution must be positive\. "
+                    r"Got \(1280, -100\)"
+                ),
+            ),
             """```json
             [
                 {"bbox_2d": [10, 20, 110, 120], "label": "dog"}
@@ -342,8 +403,8 @@ def test_from_paligemma(
             (640, 640),
             (1280, -100),
             None,
-            None,
-        ),  # negative resolution height -> ValueError
+            None,  # invalid resolution_wh
+        ),
     ],
 )
 def test_from_qwen_2_5_vl(
@@ -368,28 +429,28 @@ def test_from_qwen_2_5_vl(
 
 
 @pytest.mark.parametrize(
-    "exception, result, resolution_wh, classes, expected_results",
+    ("exception", "result", "resolution_wh", "classes", "expected_results"),
     [
         (
             does_not_raise(),
             "random text",
             (1000, 1000),
             None,
-            (np.empty((0, 4)), None, np.empty(0, dtype=str)),
+            (np.empty((0, 4)), np.empty((0,), dtype=int), np.empty(0, dtype=str)),
         ),  # random text without JSON format
         (
             does_not_raise(),
             "```json\ninvalid json\n```",
             (1000, 1000),
             None,
-            (np.empty((0, 4)), None, np.empty(0, dtype=str)),
+            (np.empty((0, 4)), np.empty((0,), dtype=int), np.empty(0, dtype=str)),
         ),  # invalid JSON within code blocks
         (
             does_not_raise(),
             "```json\n[]\n```",
             (1000, 1000),
             None,
-            (np.empty((0, 4)), None, np.empty(0, dtype=str)),
+            (np.empty((0, 4)), np.empty((0,), dtype=int), np.empty(0, dtype=str)),
         ),  # empty JSON array
         (
             does_not_raise(),
@@ -466,7 +527,13 @@ def test_from_qwen_2_5_vl(
             ),
         ),  # complete class filtering with multiple boxes
         (
-            pytest.raises(ValueError),
+            pytest.raises(
+                ValueError,
+                match=(
+                    r"Both dimensions in resolution must be positive\. "
+                    r"Got \(0, 480\)"
+                ),
+            ),
             """```json
             [
                 {"box_2d": [10, 20, 110, 120], "label": "cat"}
@@ -477,7 +544,13 @@ def test_from_qwen_2_5_vl(
             None,
         ),  # zero resolution width -> ValueError
         (
-            pytest.raises(ValueError),
+            pytest.raises(
+                ValueError,
+                match=(
+                    r"Both dimensions in resolution must be positive\. "
+                    r"Got \(640, -100\)"
+                ),
+            ),
             """```json
             [
                 {"box_2d": [10, 20, 110, 120], "label": "cat"}
@@ -507,7 +580,7 @@ def test_from_google_gemini(
 
 
 @pytest.mark.parametrize(
-    "exception, result, resolution_wh, expected_results",
+    ("exception", "result", "resolution_wh", "expected_results"),
     [
         (
             does_not_raise(),
@@ -570,7 +643,13 @@ def test_from_google_gemini(
             np.array([[0.0, 0.0, 1000.0, 800.0]]),
         ),  # full image box
         (
-            pytest.raises(ValueError),
+            pytest.raises(
+                ValueError,
+                match=(
+                    r"Both dimensions in resolution_wh must be positive\. "
+                    r"Got \(0, 480\)"
+                ),
+            ),
             {
                 "objects": [
                     {"x_min": 0.1, "y_min": 0.2, "x_max": 0.3, "y_max": 0.4},
@@ -580,7 +659,13 @@ def test_from_google_gemini(
             None,
         ),  # zero width -> ValueError
         (
-            pytest.raises(ValueError),
+            pytest.raises(
+                ValueError,
+                match=(
+                    r"Both dimensions in resolution_wh must be positive\. "
+                    r"Got \(640, -100\)"
+                ),
+            ),
             {
                 "objects": [
                     {"x_min": 0.1, "y_min": 0.2, "x_max": 0.3, "y_max": 0.4},
@@ -607,7 +692,7 @@ def test_from_moondream(
 
 
 @pytest.mark.parametrize(
-    "florence_result, resolution_wh, expected_results, exception",
+    ("florence_result", "resolution_wh", "expected_results", "exception"),
     [
         (  # Object detection: empty
             {"<OD>": {"bboxes": [], "labels": []}},
@@ -635,7 +720,7 @@ def test_from_moondream(
             {"<CAPTION>": "A green car parked in front of a yellow building."},
             (10, 10),
             None,
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="<CAPTION> not supported"),
         ),
         (  # Detailed Caption: unsupported
             {
@@ -645,7 +730,7 @@ def test_from_moondream(
             },
             (10, 10),
             None,
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="<DETAILED_CAPTION> not supported"),
         ),
         (  # More Detailed Caption: unsupported
             {
@@ -661,7 +746,7 @@ def test_from_moondream(
             },
             (10, 10),
             None,
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="<MORE_DETAILED_CAPTION> not supported"),
         ),
         (  # Caption to Phrase Grounding: empty
             {"<CAPTION_TO_PHRASE_GROUNDING>": {"bboxes": [], "labels": []}},
@@ -755,43 +840,11 @@ def test_from_moondream(
             ),
             DoesNotRaise(),
         ),
-        (  # Referring Expression Segmentation
-            {
-                "<REFERRING_EXPRESSION_SEGMENTATION>": {
-                    "polygons": [[[1, 1, 2, 1, 2, 2, 1, 2]]],
-                    "labels": [""],
-                }
-            },
-            (10, 10),
-            (
-                np.array([[1.0, 1.0, 2.0, 2.0]], dtype=np.float32),
-                None,
-                np.array(
-                    [
-                        [
-                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                            [0, 1, 1, 0, 0, 0, 0, 0, 0, 0],
-                            [0, 1, 1, 0, 0, 0, 0, 0, 0, 0],
-                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                        ]
-                    ],
-                    dtype=bool,
-                ),
-                None,
-            ),
-            DoesNotRaise(),
-        ),
         (  # OCR: unsupported
             {"<OCR>": "A"},
             (10, 10),
             None,
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="<OCR> not supported"),
         ),
         (  # OCR with Region: obb boxes
             {
@@ -891,7 +944,7 @@ def test_florence_2(
 
 
 @pytest.mark.parametrize(
-    "exception, result, resolution_wh, classes, expected_results",
+    ("exception", "result", "resolution_wh", "classes", "expected_results"),
     [
         (
             does_not_raise(),
@@ -1021,7 +1074,13 @@ def test_florence_2(
             ),
         ),
         (
-            pytest.raises(ValueError),
+            pytest.raises(
+                ValueError,
+                match=(
+                    r"Both dimensions in resolution must be positive\. "
+                    r"Got \(0, 480\)"
+                ),
+            ),
             """```json
             [
                 {"box_2d": [10, 20, 110, 120], "label": "cat"}
@@ -1032,7 +1091,13 @@ def test_florence_2(
             None,
         ),
         (
-            pytest.raises(ValueError),
+            pytest.raises(
+                ValueError,
+                match=(
+                    r"Both dimensions in resolution must be positive\. "
+                    r"Got \(640, -100\)"
+                ),
+            ),
             """```json
             [
                 {"box_2d": [10, 20, 110, 120], "label": "cat"}
@@ -1128,17 +1193,17 @@ def test_from_google_gemini_2_5(
 
 
 @pytest.mark.parametrize(
-    "exception, result, resolution_wh, classes, expected_detections",
+    ("exception", "result", "resolution_wh", "classes", "expected_detections"),
     [
         (
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match=r"xyxy must be a 2D np\.ndarray"),
             "",
             (100, 100),
             None,
             None,
         ),  # empty text
         (
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match=r"xyxy must be a 2D np\.ndarray"),
             "random text",
             (100, 100),
             None,
@@ -1188,14 +1253,14 @@ def test_from_google_gemini_2_5(
             ),
         ),  # multiple boxes, one class correct
         (
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="ref tags \\(1\\)"),
             "<|ref|>cat<|/ref|>",
             (100, 100),
             None,
             None,
         ),  # only ref
         (
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="ref tags \\(0\\)"),
             "<|det|>[[100, 200, 300, 400]]<|/det|>",
             (100, 100),
             None,

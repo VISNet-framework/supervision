@@ -2,86 +2,88 @@ from __future__ import annotations
 
 import numpy as np
 import numpy.typing as npt
+from deprecate import deprecated
 
 from supervision.detection.utils.iou_and_nms import box_iou_batch
 
 
-def clip_boxes(xyxy: np.ndarray, resolution_wh: tuple[int, int]) -> np.ndarray:
+def clip_boxes(
+    xyxy: npt.NDArray[np.number],
+    resolution_wh: tuple[int, int],
+) -> npt.NDArray[np.number]:
     """
     Clips bounding boxes coordinates to fit within the frame resolution.
 
     Args:
-        xyxy (np.ndarray): A numpy array of shape `(N, 4)` where each
+        xyxy: A numpy array of shape `(N, 4)` where each
             row corresponds to a bounding box in
             the format `(x_min, y_min, x_max, y_max)`.
-        resolution_wh (Tuple[int, int]): A tuple of the form `(width, height)`
-            representing the resolution of the frame.
+        resolution_wh: A tuple of the form
+            `(width, height)` representing the resolution of the frame.
 
     Returns:
-        np.ndarray: A numpy array of shape `(N, 4)` where each row
+        A numpy array of shape `(N, 4)` where each row
             corresponds to a bounding box with coordinates clipped to fit
             within the frame resolution.
 
     Examples:
-        ```python
-        import numpy as np
-        import supervision as sv
+        ```pycon
+        >>> import numpy as np
+        >>> import supervision as sv
+        >>> xyxy = np.array([
+        ...     [10, 20, 300, 200],
+        ...     [15, 25, 350, 450],
+        ...     [-10, -20, 30, 40]
+        ... ])
+        >>> sv.clip_boxes(xyxy=xyxy, resolution_wh=(320, 240))
+        array([[ 10,  20, 300, 200],
+               [ 15,  25, 320, 240],
+               [  0,   0,  30,  40]])
 
-        xyxy = np.array([
-            [10, 20, 300, 200],
-            [15, 25, 350, 450],
-            [-10, -20, 30, 40]
-        ])
-
-        sv.clip_boxes(xyxy=xyxy, resolution_wh=(320, 240))
-        # array([
-        #     [ 10,  20, 300, 200],
-        #     [ 15,  25, 320, 240],
-        #     [  0,   0,  30,  40]
-        # ])
         ```
     """
-    result = np.copy(xyxy)
+    result: npt.NDArray[np.number] = np.copy(xyxy)
     width, height = resolution_wh
     result[:, [0, 2]] = result[:, [0, 2]].clip(0, width)
     result[:, [1, 3]] = result[:, [1, 3]].clip(0, height)
     return result
 
 
-def pad_boxes(xyxy: np.ndarray, px: int, py: int | None = None) -> np.ndarray:
+def pad_boxes(
+    xyxy: npt.NDArray[np.number],
+    px: int,
+    py: int | None = None,
+) -> npt.NDArray[np.number]:
     """
     Pads bounding boxes coordinates with a constant padding.
 
     Args:
-        xyxy (np.ndarray): A numpy array of shape `(N, 4)` where each
+        xyxy: A numpy array of shape `(N, 4)` where each
             row corresponds to a bounding box in the format
             `(x_min, y_min, x_max, y_max)`.
-        px (int): The padding value to be added to both the left and right sides of
+        px: The padding value to be added to both the left and right sides of
             each bounding box.
-        py (Optional[int]): The padding value to be added to both the top and bottom
+        py: The padding value to be added to both the top and bottom
             sides of each bounding box. If not provided, `px` will be used for both
             dimensions.
 
     Returns:
-        np.ndarray: A numpy array of shape `(N, 4)` where each row corresponds to a
+        A numpy array of shape `(N, 4)` where each row corresponds to a
             bounding box with coordinates padded according to the provided padding
             values.
 
     Examples:
-        ```python
-        import numpy as np
-        import supervision as sv
+        ```pycon
+        >>> import numpy as np
+        >>> import supervision as sv
+        >>> xyxy = np.array([
+        ...     [10, 20, 30, 40],
+        ...     [15, 25, 35, 45]
+        ... ])
+        >>> sv.pad_boxes(xyxy=xyxy, px=5, py=10)
+        array([[ 5, 10, 35, 50],
+               [10, 15, 40, 55]])
 
-        xyxy = np.array([
-            [10, 20, 30, 40],
-            [15, 25, 35, 45]
-        ])
-
-        sv.pad_boxes(xyxy=xyxy, px=5, py=10)
-        # array([
-        #     [ 5, 10, 35, 50],
-        #     [10, 15, 40, 55]
-        # ])
         ```
     """
     if py is None:
@@ -94,61 +96,67 @@ def pad_boxes(xyxy: np.ndarray, px: int, py: int | None = None) -> np.ndarray:
     return result
 
 
+@deprecated(  # type: ignore[untyped-decorator]
+    target=True,
+    deprecated_in="0.27.0",
+    remove_in="0.30.0",
+    args_mapping={"normalized_xyxy": "xyxy"},
+)
 def denormalize_boxes(
-    normalized_xyxy: np.ndarray,
+    xyxy: npt.NDArray[np.number],
     resolution_wh: tuple[int, int],
     normalization_factor: float = 1.0,
-) -> np.ndarray:
+    normalized_xyxy: npt.NDArray[np.number] | None = None,
+) -> npt.NDArray[np.number]:
     """
-    Converts normalized bounding box coordinates to absolute pixel values.
+    Convert normalized bounding box coordinates to absolute pixel coordinates.
+
+    Multiplies each bounding box coordinate by image size and divides by
+    `normalization_factor`, mapping values from normalized `[0, normalization_factor]`
+    to absolute pixel values for a given resolution.
 
     Args:
-        normalized_xyxy (np.ndarray): A numpy array of shape `(N, 4)` where each row
-            contains normalized coordinates in the format `(x_min, y_min, x_max, y_max)`,
-            with values between 0 and `normalization_factor`.
-        resolution_wh (Tuple[int, int]): A tuple `(width, height)` representing the
-            target image resolution.
-        normalization_factor (float, optional): The normalization range of the input
-            coordinates. Defaults to 1.0.
+        xyxy: Normalized bounding boxes of shape `(N, 4)`,
+            where each row is `(x_min, y_min, x_max, y_max)`, values in
+            `[0, normalization_factor]`.
+        resolution_wh: Target image resolution as `(width, height)`.
+        normalization_factor: Maximum value of input coordinate range.
+            Defaults to `1.0`.
 
     Returns:
-        np.ndarray: An array of shape `(N, 4)` with absolute coordinates in
+        Array of shape `(N, 4)` with absolute coordinates in
             `(x_min, y_min, x_max, y_max)` format.
 
     Examples:
-        ```python
-        import numpy as np
-        import supervision as sv
+        ```pycon
+        >>> import numpy as np
+        >>> import supervision as sv
+        >>> xyxy = np.array([
+        ...     [0.1, 0.2, 0.5, 0.6],
+        ...     [0.3, 0.4, 0.7, 0.8],
+        ...     [0.2, 0.1, 0.6, 0.5]
+        ... ])
+        >>> sv.denormalize_boxes(xyxy, (1280, 720))
+        array([[128., 144., 640., 432.],
+               [384., 288., 896., 576.],
+               [256.,  72., 768., 360.]])
 
-        # Default normalization (0-1)
-        normalized_xyxy = np.array([
-            [0.1, 0.2, 0.5, 0.6],
-            [0.3, 0.4, 0.7, 0.8]
-        ])
-        resolution_wh = (100, 200)
-        sv.denormalize_boxes(normalized_xyxy, resolution_wh)
-        # array([
-        #     [ 10.,  40.,  50., 120.],
-        #     [ 30.,  80.,  70., 160.]
-        # ])
-
-        # Custom normalization (0-100)
-        normalized_xyxy = np.array([
-            [10., 20., 50., 60.],
-            [30., 40., 70., 80.]
-        ])
-        sv.denormalize_boxes(normalized_xyxy, resolution_wh, normalization_factor=100.0)
-        # array([
-        #     [ 10.,  40.,  50., 120.],
-        #     [ 30.,  80.,  70., 160.]
-        # ])
         ```
-    """  # noqa E501 // docs
-    width, height = resolution_wh
-    result = normalized_xyxy.copy()
 
-    result[[0, 2]] = (result[[0, 2]] * width) / normalization_factor
-    result[[1, 3]] = (result[[1, 3]] * height) / normalization_factor
+        ```pycon
+        >>> xyxy = np.array([
+        ...     [256., 128., 768., 640.]
+        ... ])
+        >>> sv.denormalize_boxes(xyxy, (1280, 720), normalization_factor=1024.0)
+        array([[320.,  90., 960., 450.]])
+
+        ```
+    """
+    width, height = resolution_wh
+    result = xyxy.copy()
+
+    result[:, [0, 2]] = (result[:, [0, 2]] * width) / normalization_factor
+    result[:, [1, 3]] = (result[:, [1, 3]] * height) / normalization_factor
 
     return result
 
@@ -157,31 +165,28 @@ def move_boxes(
     xyxy: npt.NDArray[np.float64], offset: npt.NDArray[np.int32]
 ) -> npt.NDArray[np.float64]:
     """
-    Parameters:
-        xyxy (npt.NDArray[np.float64]): An array of shape `(n, 4)` containing the
+    Args:
+        xyxy: An array of shape `(n, 4)` containing the
             bounding boxes coordinates in format `[x1, y1, x2, y2]`
-        offset (np.array): An array of shape `(2,)` containing offset values in format
+        offset: An array of shape `(2,)` containing offset values in format
             is `[dx, dy]`.
 
     Returns:
-        npt.NDArray[np.float64]: Repositioned bounding boxes.
+        Repositioned bounding boxes.
 
     Examples:
-        ```python
-        import numpy as np
-        import supervision as sv
+        ```pycon
+        >>> import numpy as np
+        >>> import supervision as sv
+        >>> xyxy = np.array([
+        ...     [10, 10, 20, 20],
+        ...     [30, 30, 40, 40]
+        ... ])
+        >>> offset = np.array([5, 5])
+        >>> sv.move_boxes(xyxy=xyxy, offset=offset)
+        array([[15, 15, 25, 25],
+               [35, 35, 45, 45]])
 
-        xyxy = np.array([
-            [10, 10, 20, 20],
-            [30, 30, 40, 40]
-        ])
-        offset = np.array([5, 5])
-
-        sv.move_boxes(xyxy=xyxy, offset=offset)
-        # array([
-        #    [15, 15, 25, 25],
-        #    [35, 35, 45, 45]
-        # ])
         ```
     """
     return xyxy + np.hstack([offset, offset])
@@ -191,53 +196,47 @@ def move_oriented_boxes(
     xyxyxyxy: npt.NDArray[np.float64], offset: npt.NDArray[np.int32]
 ) -> npt.NDArray[np.float64]:
     """
-    Parameters:
-    xyxyxyxy (npt.NDArray[np.float64]): An array of shape `(n, 4, 2)` containing the
-    oriented bounding boxes coordinates in format
-    `[[x1, y1], [x2, y2], [x3, y3], [x3, y3]]`
-    offset (np.array): An array of shape `(2,)` containing offset values in format
-        is `[dx, dy]`.
+    Args:
+        xyxyxyxy: An array of shape `(n, 4, 2)` containing the
+        oriented bounding boxes coordinates in format
+        `[[x1, y1], [x2, y2], [x3, y3], [x3, y3]]`
+        offset: An array of shape `(2,)` containing offset values in format
+            is `[dx, dy]`.
 
     Returns:
-    npt.NDArray[np.float64]: Repositioned bounding boxes.
+        Repositioned bounding boxes.
 
     Examples:
-    ```python
-    import numpy as np
-    import supervision as sv
+        ```pycon
+        >>> import numpy as np
+        >>> from supervision.detection.utils.boxes import move_oriented_boxes
+        >>> xyxyxyxy = np.array([
+        ...     [
+        ...         [20, 10],
+        ...         [10, 20],
+        ...         [20, 30],
+        ...         [30, 20]
+        ...     ],
+        ...     [
+        ...         [30, 30],
+        ...         [20, 40],
+        ...         [30, 50],
+        ...         [40, 40]
+        ...     ]
+        ... ])
+        >>> offset = np.array([5, 5])
+        >>> move_oriented_boxes(xyxyxyxy=xyxyxyxy, offset=offset)
+        array([[[25, 15],
+                [15, 25],
+                [25, 35],
+                [35, 25]],
+        <BLANKLINE>
+               [[35, 35],
+                [25, 45],
+                [35, 55],
+                [45, 45]]])
 
-    xyxyxyxy = np.array([
-        [
-            [20, 10],
-            [10, 20],
-            [20, 30],
-            [30, 20]
-        ],
-        [
-            [30 ,30],
-            [20, 40],
-            [30, 50],
-            [40, 40]
-        ]
-    ])
-    offset = np.array([5, 5])
-
-    sv.move_oriented_boxes(xyxy=xyxy, offset=offset)
-    # array([
-    #     [
-    #         [25, 15],
-    #         [15, 25],
-    #         [25, 35],
-    #         [35, 25]
-    #     ],
-    #     [
-    #         [35, 35],
-    #         [25, 45],
-    #         [35, 55],
-    #         [45, 45]
-    #     ]
-    # ])
-    ```
+        ```
     """
     return xyxyxyxy + offset
 
@@ -248,31 +247,28 @@ def scale_boxes(
     """
     Scale the dimensions of bounding boxes.
 
-    Parameters:
-        xyxy (npt.NDArray[np.float64]): An array of shape `(n, 4)` containing the
+    Args:
+        xyxy: An array of shape `(n, 4)` containing the
             bounding boxes coordinates in format `[x1, y1, x2, y2]`
-        factor (float): A float value representing the factor by which the box
+        factor: A float value representing the factor by which the box
             dimensions are scaled. A factor greater than 1 enlarges the boxes, while a
             factor less than 1 shrinks them.
 
     Returns:
-        npt.NDArray[np.float64]: Scaled bounding boxes.
+        Scaled bounding boxes.
 
     Examples:
-        ```python
-        import numpy as np
-        import supervision as sv
+        ```pycon
+        >>> import numpy as np
+        >>> import supervision as sv
+        >>> xyxy = np.array([
+        ...     [10, 10, 20, 20],
+        ...     [30, 30, 40, 40]
+        ... ])
+        >>> sv.scale_boxes(xyxy=xyxy, factor=1.5)
+        array([[ 7.5,  7.5, 22.5, 22.5],
+               [27.5, 27.5, 42.5, 42.5]])
 
-        xyxy = np.array([
-            [10, 10, 20, 20],
-            [30, 30, 40, 40]
-        ])
-
-        sv.scale_boxes(xyxy=xyxy, factor=1.5)
-        # array([
-        #    [ 7.5,  7.5, 22.5, 22.5],
-        #    [27.5, 27.5, 42.5, 42.5]
-        # ])
         ```
     """
     centers = (xyxy[:, :2] + xyxy[:, 2:]) / 2
@@ -281,15 +277,32 @@ def scale_boxes(
 
 
 def spread_out_boxes(
-    xyxy: np.ndarray,
+    xyxy: npt.NDArray[np.number],
     max_iterations: int = 100,
-) -> np.ndarray:
+) -> npt.NDArray[np.number]:
     """
     Spread out boxes that overlap with each other.
 
     Args:
         xyxy: Numpy array of shape (N, 4) where N is the number of boxes.
         max_iterations: Maximum number of iterations to run the algorithm for.
+
+    Example:
+        ```pycon
+        >>> import numpy as np
+        >>> from supervision.detection.utils.boxes import spread_out_boxes
+        >>> xyxy = np.array([
+        ...     [10, 10, 20, 20],
+        ...     [12, 12, 22, 22]
+        ... ])
+        >>> spread_out = spread_out_boxes(xyxy=xyxy, max_iterations=10)
+        >>> # The boxes should be moved apart
+        >>> bool(spread_out[0, 0] < 10 and spread_out[0, 1] < 10)
+        True
+        >>> bool(spread_out[1, 0] > 12 and spread_out[1, 1] > 12)
+        True
+
+        ```
     """
     if len(xyxy) == 0:
         return xyxy

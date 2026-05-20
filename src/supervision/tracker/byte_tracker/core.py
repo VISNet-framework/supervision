@@ -1,4 +1,10 @@
+from __future__ import annotations
+
+from typing import cast
+
 import numpy as np
+import numpy.typing as npt
+from deprecate import deprecated_class
 
 from supervision.detection.core import Detections
 from supervision.detection.utils.iou_and_nms import box_iou_batch
@@ -8,28 +14,40 @@ from supervision.tracker.byte_tracker.single_object_track import STrack, TrackSt
 from supervision.tracker.byte_tracker.utils import IdCounter
 
 
+@deprecated_class(
+    target=None,
+    deprecated_in="0.28.0",
+    remove_in="0.30.0",
+)
 class ByteTrack:
     """
     Initialize the ByteTrack object.
+
+    .. deprecated:: 0.28.0
+        `ByteTrack` is deprecated since `supervision-0.28.0` and will be removed in
+        `supervision-0.30.0`. Use `ByteTrackTracker` from the `trackers` package
+        instead (`pip install trackers`). Note: the update method is renamed from
+        `update_with_detections()` to `update()`.
 
     <video controls>
         <source src="https://media.roboflow.com/supervision/video-examples/how-to/track-objects/annotate-video-with-traces.mp4" type="video/mp4">
     </video>
 
-    Parameters:
-        track_activation_threshold (float): Detection confidence threshold
+    Args:
+        track_activation_threshold: Detection confidence threshold
             for track activation. Increasing track_activation_threshold improves accuracy
             and stability but might miss true detections. Decreasing it increases
             completeness but risks introducing noise and instability.
-        lost_track_buffer (int): Number of frames to buffer when a track is lost.
+        lost_track_buffer: Number of frames to buffer when a track is lost.
             Increasing lost_track_buffer enhances occlusion handling, significantly
             reducing the likelihood of track fragmentation or disappearance caused
             by brief detection gaps.
-        minimum_matching_threshold (float): Threshold for matching tracks with detections.
-            Increasing minimum_matching_threshold improves accuracy but risks fragmentation.
-            Decreasing it improves completeness but risks false positives and drift.
-        frame_rate (int): The frame rate of the video.
-        minimum_consecutive_frames (int): Number of consecutive frames that an object must
+        minimum_matching_threshold: Threshold for matching tracks with detections.
+            Decreasing minimum_matching_threshold improves accuracy but risks fragmentation.
+            Increasing it improves completeness but risks false positives and drift.
+        frame_rate: The frame rate of the video. Accepts float values (e.g. 23.976,
+            29.97) for accurate lost-track-buffer calculation.
+        minimum_consecutive_frames: Number of consecutive frames that an object must
             be tracked before it is considered a 'valid' track.
             Increasing minimum_consecutive_frames prevents the creation of accidental tracks from
             false detection or double detection, but risks missing shorter tracks.
@@ -40,7 +58,7 @@ class ByteTrack:
         track_activation_threshold: float = 0.25,
         lost_track_buffer: int = 30,
         minimum_matching_threshold: float = 0.8,
-        frame_rate: int = 30,
+        frame_rate: float = 30,
         minimum_consecutive_frames: int = 1,
     ):
         self.track_activation_threshold = track_activation_threshold
@@ -68,14 +86,14 @@ class ByteTrack:
         detection results.
 
         Args:
-            detections (Detections): The detections to pass through the tracker.
+            detections: The detections to pass through the tracker.
 
         Example:
             ```python
             import supervision as sv
             from ultralytics import YOLO
 
-            model = YOLO(<MODEL_PATH>)
+            model = YOLO("<MODEL_PATH>")
             tracker = sv.ByteTrack()
 
             box_annotator = sv.BoxAnnotator()
@@ -95,12 +113,15 @@ class ByteTrack:
                 return annotated_frame
 
             sv.process_video(
-                source_path=<SOURCE_VIDEO_PATH>,
-                target_path=<TARGET_VIDEO_PATH>,
+                source_path="<SOURCE_VIDEO_PATH>",
+                target_path="<TARGET_VIDEO_PATH>",
                 callback=callback
             )
             ```
         """
+        if detections.confidence is None:
+            raise ValueError("Detections confidence must be provided for tracking.")
+
         tensors = np.hstack(
             (
                 detections.xyxy,
@@ -115,7 +136,7 @@ class ByteTrack:
 
             ious = box_iou_batch(detection_bounding_boxes, track_bounding_boxes)
 
-            iou_costs = 1 - ious
+            iou_costs: npt.NDArray[np.float32] = 1 - ious
 
             matches, _, _ = matching.linear_assignment(iou_costs, 0.5)
             detections.tracker_id = np.full(len(detections), -1, dtype=int)
@@ -124,7 +145,8 @@ class ByteTrack:
                     tracks[i_track].external_track_id
                 )
 
-            return detections[detections.tracker_id != -1]
+            filtered = detections[detections.tracker_id != -1]
+            return cast(Detections, filtered)
 
         else:
             detections = Detections.empty()
@@ -148,15 +170,15 @@ class ByteTrack:
         self.lost_tracks = []
         self.removed_tracks = []
 
-    def update_with_tensors(self, tensors: np.ndarray) -> list[STrack]:
+    def update_with_tensors(self, tensors: npt.NDArray[np.float32]) -> list[STrack]:
         """
         Updates the tracker with the provided tensors and returns the updated tracks.
 
-        Parameters:
+        Args:
             tensors: The new tensors to update with.
 
         Returns:
-            List[STrack]: Updated tracks.
+            Updated tracks.
         """
         self.frame_id += 1
         activated_starcks = []
@@ -195,7 +217,7 @@ class ByteTrack:
 
         """ Add newly detected tracklets to tracked_stracks"""
         unconfirmed = []
-        tracked_stracks = []  # type: list[STrack]
+        tracked_stracks: list[STrack] = []
 
         for track in self.tracked_tracks:
             if not track.is_activated:
@@ -247,7 +269,7 @@ class ByteTrack:
             if strack_pool[i].state == TrackState.Tracked
         ]
         dists = matching.iou_distance(r_tracked_stracks, detections_second)
-        matches, u_track, u_detection_second = matching.linear_assignment(
+        matches, u_track, _u_detection_second = matching.linear_assignment(
             dists, thresh=0.5
         )
         for itracked, idet in matches:
@@ -319,9 +341,9 @@ def joint_tracks(
     Joins two lists of tracks, ensuring that the resulting list does not
     contain tracks with duplicate internal_track_id values.
 
-    Parameters:
-        track_list_a: First list of tracks (with internal_track_id attribute).
-        track_list_b: Second list of tracks (with internal_track_id attribute).
+    Args:
+        track_list_a: First list of tracks.
+        track_list_b: Second list of tracks.
 
     Returns:
         Combined list of tracks from track_list_a and track_list_b
@@ -338,15 +360,14 @@ def joint_tracks(
     return result
 
 
-def sub_tracks(track_list_a: list[STrack], track_list_b: list[STrack]) -> list[int]:
+def sub_tracks(track_list_a: list[STrack], track_list_b: list[STrack]) -> list[STrack]:
     """
     Returns a list of tracks from track_list_a after removing any tracks
     that share the same internal_track_id with tracks in track_list_b.
 
-    Parameters:
-        track_list_a: List of tracks (with internal_track_id attribute).
-        track_list_b: List of tracks (with internal_track_id attribute) to
-            be subtracted from track_list_a.
+    Args:
+        track_list_a: List of tracks.
+        track_list_b: List of tracks to be subtracted from track_list_a.
     Returns:
         List of remaining tracks from track_list_a after subtraction.
     """
@@ -363,7 +384,7 @@ def remove_duplicate_tracks(
     tracks_a: list[STrack], tracks_b: list[STrack]
 ) -> tuple[list[STrack], list[STrack]]:
     pairwise_distance = matching.iou_distance(tracks_a, tracks_b)
-    matching_pairs = np.where(pairwise_distance < 0.15)
+    matching_pairs = np.where(pairwise_distance < 0.05)
 
     duplicates_a, duplicates_b = set(), set()
     for track_index_a, track_index_b in zip(*matching_pairs):

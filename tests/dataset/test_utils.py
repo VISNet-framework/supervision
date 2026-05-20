@@ -3,26 +3,22 @@ from __future__ import annotations
 from contextlib import ExitStack as DoesNotRaise
 from typing import TypeVar
 
-import numpy as np
-import numpy.typing as npt
 import pytest
 
 from supervision import Detections
 from supervision.dataset.utils import (
     build_class_index_mapping,
     map_detections_class_id,
-    mask_to_rle,
     merge_class_lists,
-    rle_to_mask,
     train_test_split,
 )
-from tests.test_utils import mock_detections
+from tests.helpers import _create_detections
 
 T = TypeVar("T")
 
 
 @pytest.mark.parametrize(
-    "data, train_ratio, random_state, shuffle, expected_result, exception",
+    ("data", "train_ratio", "random_state", "shuffle", "expected_result", "exception"),
     [
         ([], 0.5, None, False, ([], []), DoesNotRaise()),  # empty data
         (
@@ -94,7 +90,7 @@ def test_train_test_split(
 
 
 @pytest.mark.parametrize(
-    "class_lists, expected_result, exception",
+    ("class_lists", "expected_result", "exception"),
     [
         ([], [], DoesNotRaise()),  # empty class lists
         (
@@ -128,7 +124,7 @@ def test_merge_class_maps(
 
 
 @pytest.mark.parametrize(
-    "source_classes, target_classes, expected_result, exception",
+    ("source_classes", "target_classes", "expected_result", "exception"),
     [
         ([], [], {}, DoesNotRaise()),  # empty class lists
         ([], ["dog", "person"], {}, DoesNotRaise()),  # empty source class list
@@ -136,7 +132,7 @@ def test_merge_class_maps(
             ["dog", "person"],
             [],
             None,
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="Class dog not found"),
         ),  # empty target class list
         (
             ["dog", "person"],
@@ -160,7 +156,7 @@ def test_merge_class_maps(
             ["dog", "person"],
             ["cat", "dog"],
             None,
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="Class person not found"),
         ),  # source class list is not a subset of target class list
     ],
 )
@@ -178,18 +174,18 @@ def test_build_class_index_mapping(
 
 
 @pytest.mark.parametrize(
-    "source_to_target_mapping, detections, expected_result, exception",
+    ("source_to_target_mapping", "detections", "expected_result", "exception"),
     [
         (
             {},
-            mock_detections(xyxy=[[0, 0, 10, 10]], class_id=[0]),
+            _create_detections(xyxy=[[0, 0, 10, 10]], class_id=[0]),
             None,
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="subset of source_to_target_mapping"),
         ),  # empty mapping
         (
             {0: 1},
-            mock_detections(xyxy=[[0, 0, 10, 10]], class_id=[0]),
-            mock_detections(xyxy=[[0, 0, 10, 10]], class_id=[1]),
+            _create_detections(xyxy=[[0, 0, 10, 10]], class_id=[0]),
+            _create_detections(xyxy=[[0, 0, 10, 10]], class_id=[1]),
             DoesNotRaise(),
         ),  # single mapping
         (
@@ -200,26 +196,26 @@ def test_build_class_index_mapping(
         ),  # empty detections
         (
             {0: 1, 1: 2},
-            mock_detections(xyxy=[[0, 0, 10, 10]], class_id=[0]),
-            mock_detections(xyxy=[[0, 0, 10, 10]], class_id=[1]),
+            _create_detections(xyxy=[[0, 0, 10, 10]], class_id=[0]),
+            _create_detections(xyxy=[[0, 0, 10, 10]], class_id=[1]),
             DoesNotRaise(),
         ),  # multiple mappings
         (
             {0: 1, 1: 2},
-            mock_detections(xyxy=[[0, 0, 10, 10], [0, 0, 10, 10]], class_id=[0, 1]),
-            mock_detections(xyxy=[[0, 0, 10, 10], [0, 0, 10, 10]], class_id=[1, 2]),
+            _create_detections(xyxy=[[0, 0, 10, 10], [0, 0, 10, 10]], class_id=[0, 1]),
+            _create_detections(xyxy=[[0, 0, 10, 10], [0, 0, 10, 10]], class_id=[1, 2]),
             DoesNotRaise(),
         ),  # multiple mappings
         (
             {0: 1, 1: 2},
-            mock_detections(xyxy=[[0, 0, 10, 10]], class_id=[2]),
+            _create_detections(xyxy=[[0, 0, 10, 10]], class_id=[2]),
             None,
-            pytest.raises(ValueError),
+            pytest.raises(ValueError, match="source_to_target_mapping keys"),
         ),  # class_id not in mapping
         (
             {0: 1, 1: 2},
-            mock_detections(xyxy=[[0, 0, 10, 10]], class_id=[0], confidence=[0.5]),
-            mock_detections(xyxy=[[0, 0, 10, 10]], class_id=[1], confidence=[0.5]),
+            _create_detections(xyxy=[[0, 0, 10, 10]], class_id=[0], confidence=[0.5]),
+            _create_detections(xyxy=[[0, 0, 10, 10]], class_id=[1], confidence=[0.5]),
             DoesNotRaise(),
         ),  # confidence is not None
     ],
@@ -235,131 +231,3 @@ def test_map_detections_class_id(
             source_to_target_mapping=source_to_target_mapping, detections=detections
         )
         assert result == expected_result
-
-
-@pytest.mark.parametrize(
-    "mask, expected_rle, exception",
-    [
-        (
-            np.zeros((3, 3)).astype(bool),
-            [9],
-            DoesNotRaise(),
-        ),  # mask with background only (mask with only False values)
-        (
-            np.ones((3, 3)).astype(bool),
-            [0, 9],
-            DoesNotRaise(),
-        ),  # mask with foreground only (mask with only True values)
-        (
-            np.array(
-                [
-                    [0, 0, 0, 0, 0],
-                    [0, 1, 1, 1, 0],
-                    [0, 1, 0, 1, 0],
-                    [0, 1, 1, 1, 0],
-                    [0, 0, 0, 0, 0],
-                ]
-            ).astype(bool),
-            [6, 3, 2, 1, 1, 1, 2, 3, 6],
-            DoesNotRaise(),
-        ),  # mask where foreground object has hole
-        (
-            np.array(
-                [
-                    [1, 0, 1, 0, 1],
-                    [1, 0, 1, 0, 1],
-                    [1, 0, 1, 0, 1],
-                    [1, 0, 1, 0, 1],
-                    [1, 0, 1, 0, 1],
-                ]
-            ).astype(bool),
-            [0, 5, 5, 5, 5, 5],
-            DoesNotRaise(),
-        ),  # mask where foreground consists of 3 separate components
-        (
-            np.array([[[]]]).astype(bool),
-            None,
-            pytest.raises(AssertionError),
-        ),  # raises AssertionError because mask dimensionality is not 2D
-        (
-            np.array([[]]).astype(bool),
-            None,
-            pytest.raises(AssertionError),
-        ),  # raises AssertionError because mask is empty
-    ],
-)
-def test_mask_to_rle(
-    mask: npt.NDArray[np.bool_], expected_rle: list[int], exception: Exception
-) -> None:
-    with exception:
-        result = mask_to_rle(mask=mask)
-        assert result == expected_rle
-
-
-@pytest.mark.parametrize(
-    "rle, resolution_wh, expected_mask, exception",
-    [
-        (
-            np.array([9]),
-            [3, 3],
-            np.zeros((3, 3)).astype(bool),
-            DoesNotRaise(),
-        ),  # mask with background only (mask with only False values); rle as array
-        (
-            [9],
-            [3, 3],
-            np.zeros((3, 3)).astype(bool),
-            DoesNotRaise(),
-        ),  # mask with background only (mask with only False values); rle as list
-        (
-            np.array([0, 9]),
-            [3, 3],
-            np.ones((3, 3)).astype(bool),
-            DoesNotRaise(),
-        ),  # mask with foreground only (mask with only True values)
-        (
-            np.array([6, 3, 2, 1, 1, 1, 2, 3, 6]),
-            [5, 5],
-            np.array(
-                [
-                    [0, 0, 0, 0, 0],
-                    [0, 1, 1, 1, 0],
-                    [0, 1, 0, 1, 0],
-                    [0, 1, 1, 1, 0],
-                    [0, 0, 0, 0, 0],
-                ]
-            ).astype(bool),
-            DoesNotRaise(),
-        ),  # mask where foreground object has hole
-        (
-            np.array([0, 5, 5, 5, 5, 5]),
-            [5, 5],
-            np.array(
-                [
-                    [1, 0, 1, 0, 1],
-                    [1, 0, 1, 0, 1],
-                    [1, 0, 1, 0, 1],
-                    [1, 0, 1, 0, 1],
-                    [1, 0, 1, 0, 1],
-                ]
-            ).astype(bool),
-            DoesNotRaise(),
-        ),  # mask where foreground consists of 3 separate components
-        (
-            np.array([0, 5, 5, 5, 5, 5]),
-            [2, 2],
-            None,
-            pytest.raises(AssertionError),
-        ),  # raises AssertionError because number of pixels in RLE does not match
-        # number of pixels in expected mask (width x height).
-    ],
-)
-def test_rle_to_mask(
-    rle: npt.NDArray[np.int_],
-    resolution_wh: tuple[int, int],
-    expected_mask: npt.NDArray[np.bool_],
-    exception: Exception,
-) -> None:
-    with exception:
-        result = rle_to_mask(rle=rle, resolution_wh=resolution_wh)
-        assert np.all(result == expected_mask)

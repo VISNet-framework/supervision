@@ -1,20 +1,28 @@
+from __future__ import annotations
+
 import json
 import os
 from typing import Any
 
+import numpy as np
 import pytest
 
 import supervision as sv
-from tests.test_utils import mock_detections
+from tests.helpers import _create_detections
 
 
 @pytest.mark.parametrize(
-    "detections, custom_data, "
-    "second_detections, second_custom_data, "
-    "file_name, expected_result",
+    (
+        "detections",
+        "custom_data",
+        "second_detections",
+        "second_custom_data",
+        "file_name",
+        "expected_result",
+    ),
     [
         (
-            mock_detections(
+            _create_detections(
                 xyxy=[[10, 20, 30, 40], [50, 60, 70, 80]],
                 confidence=[0.7, 0.8],
                 class_id=[0, 0],
@@ -22,7 +30,7 @@ from tests.test_utils import mock_detections
                 data={"class_name": ["person", "person"]},
             ),
             {"frame_number": 42},
-            mock_detections(
+            _create_detections(
                 xyxy=[[15, 25, 35, 45], [55, 65, 75, 85]],
                 confidence=[0.6, 0.9],
                 class_id=[1, 1],
@@ -79,13 +87,13 @@ from tests.test_utils import mock_detections
             ],
         ),  # Multiple detections
         (
-            mock_detections(
+            _create_detections(
                 xyxy=[[60, 70, 80, 90], [100, 110, 120, 130]],
                 tracker_id=[4, 5],
                 data={"class_name": ["bike", "dog"]},
             ),
             {"frame_number": 44},
-            mock_detections(
+            _create_detections(
                 xyxy=[[65, 75, 85, 95], [105, 115, 125, 135]],
                 confidence=[0.5, 0.4],
                 data={"class_name": ["tree", "cat"]},
@@ -140,13 +148,13 @@ from tests.test_utils import mock_detections
             ],
         ),  # Missing fields
         (
-            mock_detections(
+            _create_detections(
                 xyxy=[[10, 11, 12, 13]],
                 confidence=[0.95],
                 data={"class_name": "unknown", "is_detected": True, "score": 1},
             ),
             {"frame_number": 46},
-            mock_detections(
+            _create_detections(
                 xyxy=[[14, 15, 16, 17]],
                 data={"class_name": "artifact", "is_detected": False, "score": 0.85},
             ),
@@ -182,14 +190,14 @@ from tests.test_utils import mock_detections
             ],
         ),  # Inconsistent Data Types
         (
-            mock_detections(
+            _create_detections(
                 xyxy=[[20, 21, 22, 23]],
             ),
             {
                 "metadata": {"sensor_id": 101, "location": "north"},
                 "tags": ["urgent", "review"],
             },
-            mock_detections(
+            _create_detections(
                 xyxy=[[14, 15, 16, 17]],
             ),
             {
@@ -222,19 +230,167 @@ from tests.test_utils import mock_detections
                 },
             ],
         ),  # Complex Data
+        (
+            _create_detections(
+                xyxy=[[10, 20, 30, 40], [50, 60, 70, 80]],
+                confidence=[0.9, 0.8],
+                class_id=[0, 1],
+            ),
+            {"area": np.array([400.0, 400.0])},
+            _create_detections(
+                xyxy=[[15, 25, 35, 45]],
+                confidence=[0.7],
+                class_id=[2],
+            ),
+            {"area": np.array([400.0])},
+            "test_detections_array_custom_data.json",
+            [
+                {
+                    "x_min": 10,
+                    "y_min": 20,
+                    "x_max": 30,
+                    "y_max": 40,
+                    "class_id": 0,
+                    "confidence": 0.8999999761581421,
+                    "tracker_id": "",
+                    "area": "400.0",
+                },
+                {
+                    "x_min": 50,
+                    "y_min": 60,
+                    "x_max": 70,
+                    "y_max": 80,
+                    "class_id": 1,
+                    "confidence": 0.800000011920929,
+                    "tracker_id": "",
+                    "area": "400.0",
+                },
+                {
+                    "x_min": 15,
+                    "y_min": 25,
+                    "x_max": 35,
+                    "y_max": 45,
+                    "class_id": 2,
+                    "confidence": 0.699999988079071,
+                    "tracker_id": "",
+                    "area": "400.0",
+                },
+            ],
+        ),  # numpy array in custom_data sliced per detection row
+        (
+            _create_detections(
+                xyxy=[[10, 20, 30, 40], [50, 60, 70, 80]],
+                confidence=[0.9, 0.8],
+                class_id=[0, 1],
+            ),
+            {"ids": ["a", "b"], "tags": ("x", "y")},
+            _create_detections(
+                xyxy=[[15, 25, 35, 45]],
+                confidence=[0.7],
+                class_id=[2],
+            ),
+            {"ids": ["c"], "tags": ("z",)},
+            "test_detections_list_custom_data.json",
+            [
+                {
+                    "x_min": 10,
+                    "y_min": 20,
+                    "x_max": 30,
+                    "y_max": 40,
+                    "class_id": 0,
+                    "confidence": 0.8999999761581421,
+                    "tracker_id": "",
+                    "ids": "a",
+                    "tags": "x",
+                },
+                {
+                    "x_min": 50,
+                    "y_min": 60,
+                    "x_max": 70,
+                    "y_max": 80,
+                    "class_id": 1,
+                    "confidence": 0.800000011920929,
+                    "tracker_id": "",
+                    "ids": "b",
+                    "tags": "y",
+                },
+                {
+                    "x_min": 15,
+                    "y_min": 25,
+                    "x_max": 35,
+                    "y_max": 45,
+                    "class_id": 2,
+                    "confidence": 0.699999988079071,
+                    "tracker_id": "",
+                    "ids": "c",
+                    "tags": "z",
+                },
+            ],
+        ),  # list/tuple custom_data matching detection count is sliced per row
+        (
+            sv.Detections(
+                xyxy=np.array([[10, 20, 30, 40], [50, 60, 70, 80]]),
+                data={"labels": ["person", "car"]},
+            ),
+            None,
+            sv.Detections(
+                xyxy=np.array([[15, 25, 35, 45]]),
+                data={"labels": ["bus"]},
+            ),
+            None,
+            "test_detections_plain_list_data.json",
+            [
+                {
+                    "x_min": 10.0,
+                    "y_min": 20.0,
+                    "x_max": 30.0,
+                    "y_max": 40.0,
+                    "class_id": "",
+                    "confidence": "",
+                    "tracker_id": "",
+                    "labels": "person",
+                },
+                {
+                    "x_min": 50.0,
+                    "y_min": 60.0,
+                    "x_max": 70.0,
+                    "y_max": 80.0,
+                    "class_id": "",
+                    "confidence": "",
+                    "tracker_id": "",
+                    "labels": "car",
+                },
+                {
+                    "x_min": 15.0,
+                    "y_min": 25.0,
+                    "x_max": 35.0,
+                    "y_max": 45.0,
+                    "class_id": "",
+                    "confidence": "",
+                    "tracker_id": "",
+                    "labels": "bus",
+                },
+            ],
+        ),  # plain Python list in detections.data is sliced per row without custom_data
     ],
 )
 def test_json_sink(
-    detections: mock_detections,
-    custom_data: dict[str, Any],
-    second_detections: mock_detections,
-    second_custom_data: dict[str, Any],
+    detections: sv.Detections,
+    custom_data: dict[str, Any] | None,
+    second_detections: sv.Detections,
+    second_custom_data: dict[str, Any] | None,
     file_name: str,
     expected_result: list[list[Any]],
 ) -> None:
     with sv.JSONSink(file_name) as sink:
-        sink.append(detections, custom_data)
-        sink.append(second_detections, second_custom_data)
+        if custom_data is None:
+            sink.append(detections)
+        else:
+            sink.append(detections, custom_data)
+        if second_custom_data is None:
+            sink.append(second_detections)
+        else:
+            sink.append(second_detections, second_custom_data)
 
     assert_json_equal(file_name, expected_result)
 

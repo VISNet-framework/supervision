@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from enum import Enum
 from functools import reduce
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
+import numpy.typing as npt
 
 from supervision.config import (
     CLASS_NAME_DATA_FIELD,
@@ -15,12 +15,17 @@ from supervision.config import (
 from supervision.detection.tools.darwin import (
     darwin_annotations_to_detections_dict,
 )
+from supervision.detection.compact_mask import CompactMask
 from supervision.detection.tools.transformers import (
     process_transformers_detection_result,
     process_transformers_v4_segmentation_result,
     process_transformers_v5_segmentation_result,
 )
-from supervision.detection.utils.converters import mask_to_xyxy, xywh_to_xyxy
+from supervision.detection.utils.converters import (
+    mask_to_xyxy,
+    polygon_to_mask,
+    xywh_to_xyxy,
+)
 from supervision.detection.utils.internal import (
     extract_ultralytics_masks,
     get_data_item,
@@ -50,11 +55,12 @@ from supervision.detection.vlm import (
     from_moondream,
     from_paligemma,
     from_qwen_2_5_vl,
+    from_qwen_3_vl,
     validate_vlm_parameters,
 )
 from supervision.geometry.core import Position
-from supervision.utils.internal import deprecated, get_instance_variables
-from supervision.validators import validate_detections_fields
+from supervision.utils.internal import get_instance_variables, warn_deprecated
+from supervision.validators import validate_detections_fields, validate_resolution
 
 
 @dataclass
@@ -76,7 +82,7 @@ class Detections:
         from inference import get_model
 
         model = get_model(model_id="yolov8n-640")
-        image = cv2.imread(<SOURCE_IMAGE_PATH>)
+        image = cv2.imread("<SOURCE_IMAGE_PATH>")
         results = model.infer(image)[0]
         detections = sv.Detections.from_inference(results)
         ```
@@ -92,7 +98,7 @@ class Detections:
         from ultralytics import YOLO
 
         model = YOLO("yolov8n.pt")
-        image = cv2.imread(<SOURCE_IMAGE_PATH>)
+        image = cv2.imread("<SOURCE_IMAGE_PATH>")
         results = model(image)[0]
         detections = sv.Detections.from_ultralytics(results)
         ```
@@ -111,7 +117,7 @@ class Detections:
         processor = DetrImageProcessor.from_pretrained("facebook/detr-resnet-50")
         model = DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50")
 
-        image = Image.open(<SOURCE_IMAGE_PATH>)
+        image = Image.open("<SOURCE_IMAGE_PATH>")
         inputs = processor(images=image, return_tensors="pt")
 
         with torch.no_grad():
@@ -127,33 +133,34 @@ class Detections:
         ```
 
     Attributes:
-        xyxy (np.ndarray): An array of shape `(n, 4)` containing
+        xyxy: An array of shape `(n, 4)` containing
             the bounding boxes coordinates in format `[x1, y1, x2, y2]`
-        mask: (Optional[np.ndarray]): An array of shape
-            `(n, H, W)` containing the segmentation masks (`bool` data type).
-        confidence (Optional[np.ndarray]): An array of shape
-            `(n,)` containing the confidence scores of the detections.
-        class_id (Optional[np.ndarray]): An array of shape
-            `(n,)` containing the class ids of the detections.
-        tracker_id (Optional[np.ndarray]): An array of shape
-            `(n,)` containing the tracker ids of the detections.
-        data (Dict[str, Union[np.ndarray, list]]): A dictionary containing additional
+        mask: An array of shape `(n, H, W)` containing the segmentation masks
+            (`bool` data type), or `None` when masks are not available, or as
+            :class:`~supervision.detection.compact_mask.CompactMask`.
+        confidence: An array of shape `(n,)` containing the confidence scores
+            of the detections, or `None` when confidence values are not available.
+        class_id: An array of shape `(n,)` containing the class ids of the
+            detections, or `None` when class ids are not available.
+        tracker_id: An array of shape `(n,)` containing the tracker ids of the
+            detections, or `None` when tracker ids are not available.
+        data: A dictionary containing additional
             data where each key is a string representing the data type, and the value
             is either a NumPy array or a list of corresponding data.
-        metadata (Dict[str, Any]): A dictionary containing collection-level metadata
+        metadata: A dictionary containing collection-level metadata
             that applies to the entire set of detections. This may include information such
             as the video name, camera parameters, timestamp, or other global metadata.
     """  # noqa: E501 // docs
 
-    xyxy: np.ndarray
-    mask: np.ndarray | None = None
-    confidence: np.ndarray | None = None
-    class_id: np.ndarray | None = None
-    tracker_id: np.ndarray | None = None
-    data: dict[str, np.ndarray | list] = field(default_factory=dict)
+    xyxy: npt.NDArray[np.generic]
+    mask: npt.NDArray[np.generic] | CompactMask | None = None
+    confidence: npt.NDArray[np.generic] | None = None
+    class_id: npt.NDArray[np.generic] | None = None
+    tracker_id: npt.NDArray[np.generic] | None = None
+    data: dict[str, npt.NDArray[np.generic] | list[Any]] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         validate_detections_fields(
             xyxy=self.xyxy,
             mask=self.mask,
@@ -163,7 +170,7 @@ class Detections:
             data=self.data,
         )
 
-    def __len__(self):
+    def __len__(self) -> int:
         """
         Returns the number of detections in the Detections object.
         """
@@ -173,12 +180,12 @@ class Detections:
         self,
     ) -> Iterator[
         tuple[
-            np.ndarray,
-            np.ndarray | None,
-            float | None,
-            int | None,
-            int | None,
-            dict[str, np.ndarray | list],
+            npt.NDArray[np.generic],
+            npt.NDArray[np.generic] | None,
+            np.generic | None,
+            np.generic | None,
+            np.generic | None,
+            dict[str, npt.NDArray[np.generic] | list[Any]],
         ]
     ]:
         """
@@ -195,7 +202,9 @@ class Detections:
                 get_data_item(self.data, i),
             )
 
-    def __eq__(self, other: Detections):
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Detections):
+            return NotImplemented
         return all(
             [
                 np.array_equal(self.xyxy, other.xyxy),
@@ -238,17 +247,16 @@ class Detections:
         return cls(**result_dict)
 
     @classmethod
-    def from_yolov5(cls, yolov5_results) -> Detections:
+    def from_yolov5(cls, yolov5_results: Any) -> Detections:
         """
         Creates a Detections instance from a
         [YOLOv5](https://github.com/ultralytics/yolov5) inference result.
 
         Args:
-            yolov5_results (yolov5.models.common.Detections):
-                The output Detections instance from YOLOv5
+            yolov5_results: The output Detections instance from YOLOv5.
 
         Returns:
-            Detections: A new Detections object.
+            A new Detections object.
 
         Example:
             ```python
@@ -256,7 +264,7 @@ class Detections:
             import torch
             import supervision as sv
 
-            image = cv2.imread(<SOURCE_IMAGE_PATH>)
+            image = cv2.imread("<SOURCE_IMAGE_PATH>")
             model = torch.hub.load('ultralytics/yolov5', 'yolov5s')
             result = model(image)
             detections = sv.Detections.from_yolov5(result)
@@ -271,7 +279,7 @@ class Detections:
         )
 
     @classmethod
-    def from_ultralytics(cls, ultralytics_results) -> Detections:
+    def from_ultralytics(cls, ultralytics_results: Any) -> Detections:
         """
         Creates a `sv.Detections` instance from a
         [YOLOv8](https://github.com/ultralytics/ultralytics) inference result.
@@ -284,11 +292,10 @@ class Detections:
             [OBB](https://docs.ultralytics.com/tasks/obb/) models.
 
         Args:
-            ultralytics_results (ultralytics.yolo.engine.results.Results):
-                The output Results instance from Ultralytics
+            ultralytics_results: The output Results instance from Ultralytics.
 
         Returns:
-            Detections: A new Detections object.
+            A new Detections object.
 
         Example:
             ```python
@@ -296,7 +303,7 @@ class Detections:
             import supervision as sv
             from ultralytics import YOLO
 
-            image = cv2.imread(<SOURCE_IMAGE_PATH>)
+            image = cv2.imread("<SOURCE_IMAGE_PATH>")
             model = YOLO('yolov8s.pt')
             results = model(image)[0]
             detections = sv.Detections.from_ultralytics(results)
@@ -311,9 +318,11 @@ class Detections:
                 xyxy=ultralytics_results.obb.xyxy.cpu().numpy(),
                 confidence=ultralytics_results.obb.conf.cpu().numpy(),
                 class_id=class_id,
-                tracker_id=ultralytics_results.obb.id.int().cpu().numpy()
-                if ultralytics_results.obb.id is not None
-                else None,
+                tracker_id=(
+                    ultralytics_results.obb.id.int().cpu().numpy()
+                    if ultralytics_results.obb.id is not None
+                    else None
+                ),
                 data={
                     ORIENTED_BOX_COORDINATES: oriented_box_coordinates,
                     CLASS_NAME_DATA_FIELD: class_names,
@@ -328,34 +337,41 @@ class Detections:
                 class_id=np.arange(len(ultralytics_results)),
             )
 
-        class_id = ultralytics_results.boxes.cls.cpu().numpy().astype(int)
-        class_names = np.array([ultralytics_results.names[i] for i in class_id])
-        return cls(
-            xyxy=ultralytics_results.boxes.xyxy.cpu().numpy(),
-            confidence=ultralytics_results.boxes.conf.cpu().numpy(),
-            class_id=class_id,
-            mask=extract_ultralytics_masks(ultralytics_results),
-            tracker_id=ultralytics_results.boxes.id.int().cpu().numpy()
-            if ultralytics_results.boxes.id is not None
-            else None,
-            data={CLASS_NAME_DATA_FIELD: class_names},
-        )
+        if (
+            hasattr(ultralytics_results, "boxes")
+            and ultralytics_results.boxes is not None
+        ):
+            class_id = ultralytics_results.boxes.cls.cpu().numpy().astype(int)
+            class_names = np.array([ultralytics_results.names[i] for i in class_id])
+            return cls(
+                xyxy=ultralytics_results.boxes.xyxy.cpu().numpy(),
+                confidence=ultralytics_results.boxes.conf.cpu().numpy(),
+                class_id=class_id,
+                mask=extract_ultralytics_masks(ultralytics_results),
+                tracker_id=(
+                    ultralytics_results.boxes.id.int().cpu().numpy()
+                    if ultralytics_results.boxes.id is not None
+                    else None
+                ),
+                data={CLASS_NAME_DATA_FIELD: class_names},
+            )
+
+        return cls.empty()
 
     @classmethod
-    def from_yolo_nas(cls, yolo_nas_results) -> Detections:
+    def from_yolo_nas(cls, yolo_nas_results: Any) -> Detections:
         """
         Creates a Detections instance from a
         [YOLO-NAS](https://github.com/Deci-AI/super-gradients/blob/master/YOLONAS.md)
         inference result.
 
         Args:
-            yolo_nas_results (ImageDetectionPrediction):
-                The output Results instance from YOLO-NAS
+            yolo_nas_results: The output Results instance from YOLO-NAS.
                 ImageDetectionPrediction is coming from
-                'super_gradients.training.models.prediction_results'
+                'super_gradients.training.models.prediction_results'.
 
         Returns:
-            Detections: A new Detections object.
+            A new Detections object.
 
         Example:
             ```python
@@ -363,7 +379,7 @@ class Detections:
             from super_gradients.training import models
             import supervision as sv
 
-            image = cv2.imread(<SOURCE_IMAGE_PATH>)
+            image = cv2.imread("<SOURCE_IMAGE_PATH>")
             model = models.get('yolo_nas_l', pretrained_weights="coco")
 
             result = list(model.predict(image, conf=0.35))[0]
@@ -381,7 +397,7 @@ class Detections:
 
     @classmethod
     def from_tensorflow(
-        cls, tensorflow_results: dict, resolution_wh: tuple
+        cls, tensorflow_results: dict[str, Any], resolution_wh: tuple[int, int]
     ) -> Detections:
         """
         Creates a Detections instance from a
@@ -389,11 +405,13 @@ class Detections:
         inference result.
 
         Args:
-            tensorflow_results (dict):
-                The output results from Tensorflow Hub.
+            tensorflow_results: The output results from Tensorflow Hub.
+            resolution_wh: The input image resolution as `(width, height)`.
+                Bounding boxes from Tensorflow are normalized and are scaled
+                to absolute coordinates using this resolution.
 
         Returns:
-            Detections: A new Detections object.
+            A new Detections object.
 
         Example:
             ```python
@@ -406,7 +424,9 @@ class Detections:
             model = hub.load(module_handle)
             img = np.array(cv2.imread(SOURCE_IMAGE_PATH))
             result = model(img)
-            detections = sv.Detections.from_tensorflow(result)
+            detections = sv.Detections.from_tensorflow(
+                result, resolution_wh=(img.shape[1], img.shape[0])
+            )
             ```
         """
 
@@ -421,18 +441,17 @@ class Detections:
         )
 
     @classmethod
-    def from_deepsparse(cls, deepsparse_results) -> Detections:
+    def from_deepsparse(cls, deepsparse_results: Any) -> Detections:
         """
         Creates a Detections instance from a
         [DeepSparse](https://github.com/neuralmagic/deepsparse)
         inference result.
 
         Args:
-            deepsparse_results (deepsparse.yolo.schemas.YOLOOutput):
-                The output Results instance from DeepSparse.
+            deepsparse_results: The output Results instance from DeepSparse.
 
         Returns:
-            Detections: A new Detections object.
+            A new Detections object.
 
         Example:
             ```python
@@ -458,18 +477,17 @@ class Detections:
         )
 
     @classmethod
-    def from_mmdetection(cls, mmdet_results) -> Detections:
+    def from_mmdetection(cls, mmdet_results: Any) -> Detections:
         """
         Creates a Detections instance from a
         [mmdetection](https://github.com/open-mmlab/mmdetection) and
         [mmyolo](https://github.com/open-mmlab/mmyolo) inference result.
 
         Args:
-            mmdet_results (mmdet.structures.DetDataSample):
-                The output Results instance from MMDetection.
+            mmdet_results: The output Results instance from MMDetection.
 
         Returns:
-            Detections: A new Detections object.
+            A new Detections object.
 
         Example:
             ```python
@@ -477,8 +495,8 @@ class Detections:
             import supervision as sv
             from mmdet.apis import init_detector, inference_detector
 
-            image = cv2.imread(<SOURCE_IMAGE_PATH>)
-            model = init_detector(<CONFIG_PATH>, <WEIGHTS_PATH>, device=<DEVICE>)
+            image = cv2.imread("<SOURCE_IMAGE_PATH>")
+            model = init_detector("<CONFIG_PATH>", "<WEIGHTS_PATH>", device="<DEVICE>")
 
             result = inference_detector(model, image)
             detections = sv.Detections.from_mmdetection(result)
@@ -489,14 +507,18 @@ class Detections:
             xyxy=mmdet_results.pred_instances.bboxes.cpu().numpy(),
             confidence=mmdet_results.pred_instances.scores.cpu().numpy(),
             class_id=mmdet_results.pred_instances.labels.cpu().numpy().astype(int),
-            mask=mmdet_results.pred_instances.masks.cpu().numpy()
-            if "masks" in mmdet_results.pred_instances
-            else None,
+            mask=(
+                mmdet_results.pred_instances.masks.cpu().numpy()
+                if "masks" in mmdet_results.pred_instances
+                else None
+            ),
         )
 
     @classmethod
     def from_transformers(
-        cls, transformers_results: dict, id2label: dict[int, str] | None = None
+        cls,
+        transformers_results: dict[str, Any],
+        id2label: dict[int, str] | None = None,
     ) -> Detections:
         """
         Creates a Detections instance from object detection or panoptic, semantic
@@ -504,17 +526,17 @@ class Detections:
         [Transformer](https://github.com/huggingface/transformers) inference result.
 
         Args:
-            transformers_results (Union[dict, torch.Tensor]):  Inference results from
-                your Transformers model. This can be either a dictionary containing
-                valuable outputs like `scores`, `labels`, `boxes`, `masks`,
-                `segments_info`, and `segmentation`, or a `torch.Tensor` holding a
-                segmentation map where values represent class IDs.
-            id2label (Optional[Dict[int, str]]): A dictionary mapping class IDs to
-                labels, typically part of the `transformers` model configuration. If
-                provided, the resulting dictionary will include class names.
+            transformers_results: Inference results from your Transformers model.
+                This can be either a dictionary containing valuable outputs like
+                `scores`, `labels`, `boxes`, `masks`, `segments_info`, and
+                `segmentation`, or a `torch.Tensor` holding a segmentation map
+                where values represent class IDs.
+            id2label: A dictionary mapping class IDs to labels, typically part of
+                the `transformers` model configuration. If provided, the resulting
+                dictionary will include class names.
 
         Returns:
-            Detections: A new Detections object.
+            A new Detections object.
 
         Example:
             ```python
@@ -526,7 +548,7 @@ class Detections:
             processor = DetrImageProcessor.from_pretrained("facebook/detr-resnet-50")
             model = DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50")
 
-            image = Image.open(<SOURCE_IMAGE_PATH>)
+            image = Image.open("<SOURCE_IMAGE_PATH>")
             inputs = processor(images=image, return_tensors="pt")
 
             with torch.no_grad():
@@ -580,11 +602,11 @@ class Detections:
         [Detectron2](https://github.com/facebookresearch/detectron2) inference result.
 
         Args:
-            detectron2_results (Any): The output of a
+            detectron2_results: The output of a
                 Detectron2 model containing instances with prediction data.
 
         Returns:
-            (Detections): A Detections object containing the bounding boxes,
+            A Detections object containing the bounding boxes,
                 class IDs, and confidences of the predictions.
 
         Example:
@@ -595,10 +617,10 @@ class Detections:
             from detectron2.config import get_cfg
 
 
-            image = cv2.imread(<SOURCE_IMAGE_PATH>)
+            image = cv2.imread("<SOURCE_IMAGE_PATH>")
             cfg = get_cfg()
-            cfg.merge_from_file(<CONFIG_PATH>)
-            cfg.MODEL.WEIGHTS = <WEIGHTS_PATH>
+            cfg.merge_from_file("<CONFIG_PATH>")
+            cfg.MODEL.WEIGHTS = "<WEIGHTS_PATH>"
             predictor = DefaultPredictor(cfg)
 
             result = predictor(image)
@@ -609,9 +631,11 @@ class Detections:
         return cls(
             xyxy=detectron2_results["instances"].pred_boxes.tensor.cpu().numpy(),
             confidence=detectron2_results["instances"].scores.cpu().numpy(),
-            mask=detectron2_results["instances"].pred_masks.cpu().numpy()
-            if hasattr(detectron2_results["instances"], "pred_masks")
-            else None,
+            mask=(
+                detectron2_results["instances"].pred_masks.cpu().numpy()
+                if hasattr(detectron2_results["instances"], "pred_masks")
+                else None
+            ),
             class_id=detectron2_results["instances"]
             .pred_classes.cpu()
             .numpy()
@@ -619,7 +643,7 @@ class Detections:
         )
 
     @classmethod
-    def from_inference(cls, roboflow_result: dict | Any) -> Detections:
+    def from_inference(cls, roboflow_result: dict[str, Any] | Any) -> Detections:
         """
         Create a `sv.Detections` object from the [Roboflow](https://roboflow.com/)
         API inference result or the [Inference](https://inference.roboflow.com/)
@@ -628,11 +652,11 @@ class Detections:
         them into a Detections object.
 
         Args:
-            roboflow_result (dict, any): The result from the
+            roboflow_result: The result from the
                 Roboflow API or Inference package containing predictions.
 
         Returns:
-            (Detections): A Detections object containing the bounding boxes, class IDs,
+            A Detections object containing the bounding boxes, class IDs,
                 and confidences of the predictions.
 
         Example:
@@ -641,7 +665,7 @@ class Detections:
             import supervision as sv
             from inference import get_model
 
-            image = cv2.imread(<SOURCE_IMAGE_PATH>)
+            image = cv2.imread("<SOURCE_IMAGE_PATH>")
             model = get_model(model_id="yolov8s-640")
 
             result = model.infer(image)[0]
@@ -671,17 +695,17 @@ class Detections:
         )
 
     @classmethod
-    def from_sam(cls, sam_result: list[dict]) -> Detections:
+    def from_sam(cls, sam_result: list[dict[str, Any]]) -> Detections:
         """
         Creates a Detections instance from
         [Segment Anything Model](https://github.com/facebookresearch/segment-anything)
         inference result.
 
         Args:
-            sam_result (list[dict]): The output Results instance from SAM
+            sam_result: The output Results instance from SAM.
 
         Returns:
-            Detections: A new Detections object.
+            A new Detections object.
 
         Example:
             ```python
@@ -713,8 +737,133 @@ class Detections:
         return cls(xyxy=xyxy, mask=mask)
 
     @classmethod
+    def from_sam3(
+        cls, sam3_result: dict[str, Any] | Any, resolution_wh: tuple[int, int]
+    ) -> Detections:
+        """
+        Creates a Detections instance from
+        [SAM 3](https://github.com/facebookresearch/sam3) inference result.
+        Supports both PVS and PCS SAM3 segmentation formats.
+
+        Args:
+            sam3_result: The output result from SAM 3 inference, either
+                Sam3PromptResult from inference package or dict containing
+                prompt_results with polygon predictions.
+            resolution_wh: The width and height of the image used for mask
+                generation.
+
+        Returns:
+            A new Detections object. The `class_id` field contains the prompt
+                index for each polygon.
+
+        Example:
+            ```python
+            import cv2
+            import supervision as sv
+            from inference.models.sam3 import SegmentAnything3
+            from inference.core.entities.requests.sam3 import Sam3Prompt
+
+            image = cv2.imread("<SOURCE_IMAGE_PATH>")
+            model = SegmentAnything3(
+                model_id="sam3/sam3_final",
+                api_key="<ROBOFLOW_API_KEY>"
+            )
+
+            prompts = [
+                Sam3Prompt(type="text", text="car"),
+                Sam3Prompt(type="text", text="tire"),
+            ]
+
+            result = model.segment_image(
+                image=image,
+                prompts=prompts,
+                output_prob_thresh=0.5,
+                format="polygon"
+            )
+
+            height, width = image.shape[:2]
+            detections = sv.Detections.from_sam3(
+                sam3_result=result,
+                resolution_wh=(width, height)
+            )
+            ```
+        """
+        width, height = validate_resolution(resolution_wh)
+
+        masks = []
+        confidences = []
+        class_ids = []
+
+        if isinstance(sam3_result, dict):
+            prompt_results = sam3_result.get("prompt_results", [])
+            if not prompt_results and "predictions" in sam3_result:
+                prompt_results = [
+                    {"predictions": sam3_result["predictions"], "prompt_index": 0}
+                ]
+        else:
+            prompt_results = getattr(sam3_result, "prompt_results", [])
+            if not prompt_results and hasattr(sam3_result, "predictions"):
+                prompt_results = [
+                    {
+                        "predictions": getattr(sam3_result, "predictions"),
+                        "prompt_index": 0,
+                    }
+                ]
+
+        for i, prompt_result in enumerate(prompt_results):
+            if isinstance(prompt_result, dict):
+                predictions = prompt_result.get("predictions", [])
+                prompt_index = prompt_result.get("prompt_index", i)
+            else:
+                predictions = getattr(prompt_result, "predictions", [])
+                prompt_index = getattr(prompt_result, "prompt_index", i)
+
+            for prediction in predictions:
+                if isinstance(prediction, dict):
+                    prediction_format = prediction.get("format")
+                    if prediction_format and prediction_format != "polygon":
+                        continue
+                    pred_masks = prediction.get("masks", [])
+                    confidence = prediction.get("confidence", 1.0)
+                else:
+                    prediction_format = getattr(prediction, "format", None)
+                    if prediction_format and prediction_format != "polygon":
+                        continue
+                    pred_masks = getattr(prediction, "masks", [])
+                    confidence = getattr(prediction, "confidence", 1.0)
+
+                if not pred_masks:
+                    continue
+
+                full_mask: npt.NDArray[np.bool_] = np.zeros((height, width), dtype=bool)
+                for poly in pred_masks:
+                    polygon = np.array(poly, dtype=np.int32)
+                    mask = polygon_to_mask(
+                        polygon=polygon, resolution_wh=(width, height)
+                    )
+                    mask = mask.astype(bool, copy=False)
+                    np.logical_or(full_mask, mask, out=full_mask)
+
+                masks.append(full_mask)
+                confidences.append(confidence)
+                class_ids.append(prompt_index)
+
+        if not masks:
+            return cls.empty()
+
+        masks_np = np.stack(masks, axis=0)
+        xyxy = mask_to_xyxy(masks_np)
+
+        return cls(
+            xyxy=xyxy.astype(np.float32),
+            mask=masks_np,
+            confidence=np.array(confidences, dtype=np.float32),
+            class_id=np.array(class_ids, dtype=int),
+        )
+
+    @classmethod
     def from_azure_analyze_image(
-        cls, azure_result: dict, class_map: dict[int, str] | None = None
+        cls, azure_result: dict[str, Any], class_map: dict[int, str] | None = None
     ) -> Detections:
         """
         Creates a Detections instance from [Azure Image Analysis 4.0](
@@ -722,13 +871,13 @@ class Detections:
         concept-object-detection-40).
 
         Args:
-            azure_result (dict): The result from Azure Image Analysis. It should
+            azure_result: The result from Azure Image Analysis. It should
                 contain detected objects and their bounding box coordinates.
-            class_map (Optional[Dict[int, str]]): A mapping ofclass IDs (int) to class
-                names (str). If None, a new mapping is created dynamically.
+            class_map: A mapping of class IDs to class names. If None, a new
+                mapping is created dynamically.
 
         Returns:
-            Detections: A new Detections object.
+            A new Detections object.
 
         Example:
             ```python
@@ -761,10 +910,10 @@ class Detections:
         xyxy, confidences, class_ids = [], [], []
 
         is_dynamic_mapping = class_map is None
-        if is_dynamic_mapping:
+        if class_map is None:
             class_map = {}
 
-        class_map = {value: key for key, value in class_map.items()}
+        inverted_map: dict[str, int] = {value: key for key, value in class_map.items()}
 
         for detection in azure_result["objectsResult"]["values"]:
             bbox = detection["boundingBox"]
@@ -778,17 +927,17 @@ class Detections:
 
             for tag in tags:
                 confidence = tag["confidence"]
-                class_name = tag["name"]
-                class_id = class_map.get(class_name, None)
+                class_name: str = tag["name"]
+                class_id_val: int | None = inverted_map.get(class_name, None)
 
-                if is_dynamic_mapping and class_id is None:
-                    class_id = len(class_map)
-                    class_map[class_name] = class_id
+                if is_dynamic_mapping and class_id_val is None:
+                    class_id_val = len(inverted_map)
+                    inverted_map[class_name] = class_id_val
 
-                if class_id is not None:
+                if class_id_val is not None:
                     xyxy.append([x0, y0, x1, y1])
                     confidences.append(confidence)
-                    class_ids.append(class_id)
+                    class_ids.append(class_id_val)
 
         if len(xyxy) == 0:
             return Detections.empty()
@@ -800,17 +949,17 @@ class Detections:
         )
 
     @classmethod
-    def from_paddledet(cls, paddledet_result) -> Detections:
+    def from_paddledet(cls, paddledet_result: Any) -> Detections:
         """
         Creates a Detections instance from
             [PaddleDetection](https://github.com/PaddlePaddle/PaddleDetection)
             inference result.
 
         Args:
-            paddledet_result (list[dict]): The output Results instance from PaddleDet
+            paddledet_result: The output Results instance from PaddleDet.
 
         Returns:
-            Detections: A new Detections object.
+            A new Detections object.
 
         Example:
             ```python
@@ -842,11 +991,9 @@ class Detections:
         )
 
     @classmethod
-    @deprecated(
-        "`Detections.from_lmm` property is deprecated and will be removed in "
-        "`supervision-0.31.0`. Use Detections.from_vlm instead."
-    )
-    def from_lmm(cls, lmm: LMM | str, result: str | dict, **kwargs: Any) -> Detections:
+    def from_lmm(
+        cls, lmm: LMM | str, result: str | dict[str, Any], **kwargs: Any
+    ) -> Detections:
         """
         !!! deprecated "Deprecated"
             `Detections.from_lmm` is **deprecated** and will be removed in `supervision-0.31.0`.
@@ -866,12 +1013,12 @@ class Detections:
         | DeepSeek-VL2        | `DEEPSEEK_VL_2`      | detection               | `resolution_wh`             | `classes`           |
 
         Args:
-            lmm (Union[LMM, str]): The type of LMM (Large Multimodal Model) to use.
-            result (str): The result string containing the detection data.
-            **kwargs (Any): Additional keyword arguments required by the specified LMM.
+            lmm: The type of LMM (Large Multimodal Model) to use.
+            result: The result string containing the detection data.
+            **kwargs: Additional keyword arguments required by the specified LMM.
 
         Returns:
-            Detections: A new Detections object.
+            A new Detections object.
 
         Raises:
             ValueError: If the LMM is invalid, required arguments are missing, or
@@ -977,7 +1124,84 @@ class Detections:
             # array([0, 1])
             ```
 
+        !!! example "Qwen3-VL"
+
+            ```python
+            import supervision as sv
+
+            qwen_3_vl_result = \"\"\"```json
+            [
+                {"bbox_2d": [139, 768, 315, 954], "label": "cat"},
+                {"bbox_2d": [366, 679, 536, 849], "label": "dog"}
+            ]
+            ```\"\"\"
+            detections = sv.Detections.from_lmm(
+                sv.LMM.QWEN_3_VL,
+                qwen_3_vl_result,
+                resolution_wh=(1000, 1000),
+                classes=['cat', 'dog'],
+            )
+            detections.xyxy
+            # array([[139., 768., 315., 954.], [366., 679., 536., 849.]])
+
+            detections.class_id
+            # array([0, 1])
+
+            detections.data
+            # {'class_name': array(['cat', 'dog'], dtype='<U10')}
+
+            detections.class_id
+            # array([0, 1])
+            ```
+
         !!! example "Gemini 2.0"
+
+            ??? tip "Prompt engineering"
+
+                From Gemini 2.0 onwards, models are further trained to detect objects in
+                an image and get their bounding box coordinates. The coordinates,
+                relative to image dimensions, scale to [0, 1000]. You need to convert
+                these normalized coordinates back to pixel coordinates using your
+                original image size.
+
+                According to the Gemini API documentation on image prompts (see
+                https://ai.google.dev/gemini-api/docs/vision#image-input), when using a
+                single image with text, the recommended approach is to place the text
+                prompt after the image part in the contents array. This ordering has
+                been shown to produce significantly better results in practice.
+
+                For example, when calling the Gemini API directly, you can structure
+                the request like this, with the image part first and the text prompt
+                second in the `parts` list:
+
+                ```json
+                {
+                  "model": "models/gemini-2.0-flash",
+                  "contents": [
+                    {
+                      "role": "user",
+                      "parts": [
+                        {
+                          "inline_data": {
+                            "mime_type": "image/png",
+                            "data": "<BASE64_IMAGE_BYTES>"
+                          }
+                        },
+                        {
+                          "text": "Detect all the cats and dogs in the image..."
+                        }
+                      ]
+                    }
+                  ]
+                }
+                ```
+                To get the best results from Google Gemini 2.0, use the following prompt.
+
+                ```
+                Detect all the cats and dogs in the image. The box_2d should be
+                [ymin, xmin, ymax, xmax] normalized to 0-1000.
+                ```
+
             ```python
             import supervision as sv
 
@@ -1014,6 +1238,31 @@ class Detections:
                 This prompt is designed to detect all visible objects in the image,
                 including small, distant, or partially visible ones, and to return
                 tight bounding boxes.
+
+                According to the Gemini API documentation on image prompts, when using
+                a single image with text, the recommended approach is to place the text
+                prompt after the image part in the `contents` array. See the official
+                Gemini vision docs for details:
+                https://ai.google.dev/gemini-api/docs/vision#multi-part-input
+
+                For example, using the `google-generativeai` client:
+
+                ```python
+                from google.generativeai import types
+
+                response = model.generate_content(
+                    contents=[
+                        types.Part.from_image(image_bytes),
+                        "Carefully examine this image and detect ALL visible objects, including "
+                        "small, distant, or partially visible ones.",
+                    ],
+                    generation_config=generation_config,
+                    safety_settings=safety_settings,
+                )
+                ```
+
+                This ordering (image first, then text) has been shown to produce
+                significantly better results in practice.
 
                 ```
                 Carefully examine this image and detect ALL visible objects, including
@@ -1194,6 +1443,12 @@ class Detections:
             ```
         """  # noqa: E501
 
+        warn_deprecated(
+            "`Detections.from_lmm` is deprecated since `supervision-0.26.0` "
+            "and will be removed in `supervision-0.31.0`. "
+            "Use `Detections.from_vlm` instead."
+        )
+
         # filler logic mapping old from_lmm to new from_vlm
         lmm_to_vlm = {
             LMM.PALIGEMMA: VLM.PALIGEMMA,
@@ -1204,8 +1459,7 @@ class Detections:
             LMM.GOOGLE_GEMINI_2_5: VLM.GOOGLE_GEMINI_2_5,
         }
 
-        # (this works even if the LMM enum is wrapped by @deprecated)
-        if isinstance(lmm, Enum) and lmm.__class__.__name__ == "LMM":
+        if isinstance(lmm, LMM):
             vlm = lmm_to_vlm[lmm]
 
         elif isinstance(lmm, str):
@@ -1226,7 +1480,9 @@ class Detections:
         return cls.from_vlm(vlm=vlm, result=result, **kwargs)
 
     @classmethod
-    def from_vlm(cls, vlm: VLM | str, result: str | dict, **kwargs: Any) -> Detections:
+    def from_vlm(
+        cls, vlm: VLM | str, result: str | dict[str, Any], **kwargs: Any
+    ) -> Detections:
         """
 
         Creates a Detections object from the given result string based on the specified
@@ -1237,18 +1493,19 @@ class Detections:
         | PaliGemma           | `PALIGEMMA`          | detection               | `resolution_wh`             | `classes`           |
         | PaliGemma 2         | `PALIGEMMA`          | detection               | `resolution_wh`             | `classes`           |
         | Qwen2.5-VL          | `QWEN_2_5_VL`        | detection               | `resolution_wh`, `input_wh` | `classes`           |
+        | Qwen3-VL            | `QWEN_3_VL`          | detection               | `resolution_wh`,            | `classes`           |
         | Google Gemini 2.0   | `GOOGLE_GEMINI_2_0`  | detection               | `resolution_wh`             | `classes`           |
         | Google Gemini 2.5   | `GOOGLE_GEMINI_2_5`  | detection, segmentation | `resolution_wh`             | `classes`           |
         | Moondream           | `MOONDREAM`          | detection               | `resolution_wh`             |                     |
         | DeepSeek-VL2        | `DEEPSEEK_VL_2`      | detection               | `resolution_wh`             | `classes`           |
 
         Args:
-            vlm (Union[VLM, str]): The type of VLM (Vision Language Model) to use.
-            result (str): The result string containing the detection data.
-            **kwargs (Any): Additional keyword arguments required by the specified VLM.
+            vlm: The type of VLM (Vision Language Model) to use.
+            result: The result string containing the detection data.
+            **kwargs: Additional keyword arguments required by the specified VLM.
 
         Returns:
-            Detections: A new Detections object.
+            A new Detections object.
 
         Raises:
             ValueError: If the VLM is invalid, required arguments are missing, or
@@ -1354,7 +1611,59 @@ class Detections:
             # array([0, 1])
             ```
 
+        !!! example "Qwen3-VL"
+
+            ```python
+            import supervision as sv
+
+            qwen_3_vl_result = \"\"\"```json
+            [
+                {"bbox_2d": [139, 768, 315, 954], "label": "cat"},
+                {"bbox_2d": [366, 679, 536, 849], "label": "dog"}
+            ]
+            ```\"\"\"
+            detections = sv.Detections.from_vlm(
+                sv.VLM.QWEN_3_VL,
+                qwen_3_vl_result,
+                resolution_wh=(1000, 1000),
+                classes=['cat', 'dog'],
+            )
+            detections.xyxy
+            # array([[139., 768., 315., 954.], [366., 679., 536., 849.]])
+
+            detections.class_id
+            # array([0, 1])
+
+            detections.data
+            # {'class_name': array(['cat', 'dog'], dtype='<U10')}
+
+            detections.class_id
+            # array([0, 1])
+            ```
+
         !!! example "Gemini 2.0"
+
+            ??? tip "Prompt engineering"
+
+                From Gemini 2.0 onwards, models are further trained to detect objects in
+                an image and get their bounding box coordinates. The coordinates,
+                relative to image dimensions, scale to [0, 1000]. You need to convert
+                these normalized coordinates back to pixel coordinates based on your
+                original image size.
+                According to the [Gemini API documentation on image prompts](
+                https://ai.google.dev/gemini-api/docs/vision?lang=python#image_prompts), when using
+                a single image with text, the recommended approach is to place the text
+                prompt after the image part in the `contents` array (for example,
+                `contents=[image_part, text_part]`). This ordering has been shown to
+                produce significantly better results in practice.
+
+                To get the best results from Google Gemini 2.0, use the following prompt.
+
+                ```
+                Detect all the cats and dogs in the image. The box_2d should be
+                [ymin, xmin, ymax, xmax] normalized to 0-1000.
+                ```
+
             ```python
             import supervision as sv
 
@@ -1391,6 +1700,27 @@ class Detections:
                 This prompt is designed to detect all visible objects in the image,
                 including small, distant, or partially visible ones, and to return
                 tight bounding boxes.
+
+                According to the [Gemini API documentation on image prompts](
+                https://ai.google.dev/gemini-api/docs/vision?hl=en),
+                when using a single image with text, place the text prompt after the image
+                part in the `contents` array. For example, with the `google-genai` client:
+
+                ```python
+                response = model.generate_content(
+                    [
+                        {
+                            "role": "user",
+                            "parts": [
+                                types.Part.from_bytes(image_bytes, mime_type="image/png"),
+                                types.Part.from_text(prompt),
+                            ],
+                        }
+                    ]
+                )
+                ```
+
+                This ordering has been shown to produce significantly better results in practice.
 
                 ```
                 Carefully examine this image and detect ALL visible objects, including
@@ -1575,21 +1905,41 @@ class Detections:
         vlm = validate_vlm_parameters(vlm, result, kwargs)
 
         if vlm == VLM.PALIGEMMA:
+            assert isinstance(result, str)
             xyxy, class_id, class_name = from_paligemma(result, **kwargs)
-            data = {CLASS_NAME_DATA_FIELD: class_name}
+            data: dict[str, npt.NDArray[np.generic] | list[Any]] = {
+                CLASS_NAME_DATA_FIELD: class_name,
+            }
             return cls(xyxy=xyxy, class_id=class_id, data=data)
 
         if vlm == VLM.QWEN_2_5_VL:
+            assert isinstance(result, str)
             xyxy, class_id, class_name = from_qwen_2_5_vl(result, **kwargs)
             data = {CLASS_NAME_DATA_FIELD: class_name}
-            return cls(xyxy=xyxy, class_id=class_id, data=data)
+            confidence_arr: npt.NDArray[np.floating[Any]] = np.ones(
+                len(xyxy), dtype=float
+            )
+            return cls(
+                xyxy=xyxy, class_id=class_id, confidence=confidence_arr, data=data
+            )
+
+        if vlm == VLM.QWEN_3_VL:
+            assert isinstance(result, str)
+            xyxy, class_id, class_name = from_qwen_3_vl(result, **kwargs)
+            data = {CLASS_NAME_DATA_FIELD: class_name}
+            confidence_arr = np.ones(len(xyxy), dtype=float)
+            return cls(
+                xyxy=xyxy, class_id=class_id, confidence=confidence_arr, data=data
+            )
 
         if vlm == VLM.DEEPSEEK_VL_2:
+            assert isinstance(result, str)
             xyxy, class_id, class_name = from_deepseek_vl_2(result, **kwargs)
             data = {CLASS_NAME_DATA_FIELD: class_name}
             return cls(xyxy=xyxy, class_id=class_id, data=data)
 
         if vlm == VLM.FLORENCE_2:
+            assert isinstance(result, dict)
             xyxy, labels, mask, xyxyxyxy = from_florence_2(result, **kwargs)
             if len(xyxy) == 0:
                 return cls.empty()
@@ -1603,31 +1953,32 @@ class Detections:
             return cls(xyxy=xyxy, mask=mask, data=data)
 
         if vlm == VLM.GOOGLE_GEMINI_2_0:
+            assert isinstance(result, str)
             xyxy, class_id, class_name = from_google_gemini_2_0(result, **kwargs)
             data = {CLASS_NAME_DATA_FIELD: class_name}
             return cls(xyxy=xyxy, class_id=class_id, data=data)
 
         if vlm == VLM.MOONDREAM:
+            assert isinstance(result, dict)
             xyxy = from_moondream(result, **kwargs)
             return cls(xyxy=xyxy)
 
         if vlm == VLM.GOOGLE_GEMINI_2_5:
-            xyxy, class_id, class_name, confidence, mask = from_google_gemini_2_5(
-                result, **kwargs
-            )
-            data = {CLASS_NAME_DATA_FIELD: class_name}
+            assert isinstance(result, str)
+            gemini_result = from_google_gemini_2_5(result, **kwargs)
+            data = {CLASS_NAME_DATA_FIELD: gemini_result[2]}
             return cls(
-                xyxy=xyxy,
-                class_id=class_id,
-                mask=mask,
-                confidence=confidence,
+                xyxy=gemini_result[0],
+                class_id=gemini_result[1],
+                mask=gemini_result[4],
+                confidence=gemini_result[3],
                 data=data,
             )
 
         return cls.empty()
 
     @classmethod
-    def from_easyocr(cls, easyocr_results: list) -> Detections:
+    def from_easyocr(cls, easyocr_results: list[Any]) -> Detections:
         """
         Create a Detections object from the
         [EasyOCR](https://github.com/JaidedAI/EasyOCR) result.
@@ -1635,10 +1986,10 @@ class Detections:
         Results are placed in the `data` field with the key `"class_name"`.
 
         Args:
-            easyocr_results (list): The output Results instance from EasyOCR
+            easyocr_results: The output Results instance from EasyOCR.
 
         Returns:
-            Detections: A new Detections object.
+            A new Detections object.
 
         Example:
             ```python
@@ -1646,7 +1997,7 @@ class Detections:
             import easyocr
 
             reader = easyocr.Reader(['en'])
-            results = reader.readtext(<SOURCE_IMAGE_PATH>)
+            results = reader.readtext("<SOURCE_IMAGE_PATH>")
             detections = sv.Detections.from_easyocr(results)
             detected_text = detections["class_name"]
             ```
@@ -1673,17 +2024,17 @@ class Detections:
         )
 
     @classmethod
-    def from_ncnn(cls, ncnn_results) -> Detections:
+    def from_ncnn(cls, ncnn_results: Any) -> Detections:
         """
         Creates a Detections instance from the
         [ncnn](https://github.com/Tencent/ncnn) inference result.
         Supports object detection models.
 
-        Arguments:
-            ncnn_results (dict): The output Results instance from ncnn.
+        Args:
+            ncnn_results: The output Results instance from ncnn.
 
         Returns:
-            Detections: A new Detections object.
+            A new Detections object.
 
         Example:
             ```python
@@ -1691,7 +2042,7 @@ class Detections:
             from ncnn.model_zoo import get_model
             import supervision as sv
 
-            image = cv2.imread(<SOURCE_IMAGE_PATH>)
+            image = cv2.imread("<SOURCE_IMAGE_PATH>")
             model = get_model(
                 "yolov8s",
                 target_size=640
@@ -1737,7 +2088,7 @@ class Detections:
             confidences, or class IDs.
 
         Returns:
-            (Detections): An empty Detections object.
+            An empty Detections object.
 
         Example:
             ```python
@@ -1754,12 +2105,27 @@ class Detections:
 
     def is_empty(self) -> bool:
         """
-        Returns `True` if the `Detections` object is considered empty.
+        Check whether the `Detections` object has zero bounding boxes.
+
+        Returns:
+            `True` if there are no detections, `False` otherwise.
+
+        Examples:
+            ```pycon
+            >>> import numpy as np
+            >>> import supervision as sv
+            >>> detections = sv.Detections(
+            ...     xyxy=np.array([[10, 20, 110, 120]]),
+            ...     class_id=np.array([1]),
+            ...     tracker_id=np.array([1]),
+            ... )
+            >>> filtered = detections[detections.class_id == 99]
+            >>> filtered.is_empty()
+            True
+
+            ```
         """
-        empty_detections = Detections.empty()
-        empty_detections.data = self.data
-        empty_detections.metadata = self.metadata
-        return self == empty_detections
+        return len(self.xyxy) == 0
 
     @classmethod
     def merge(cls, detections_list: list[Detections]) -> Detections:
@@ -1778,11 +2144,10 @@ class Detections:
             When merging, empty `Detections` objects are ignored.
 
         Args:
-            detections_list (list[Detections]): A list of Detections objects to merge.
+            detections_list: A list of Detections objects to merge.
 
         Returns:
-            (Detections): A single Detections object containing
-                the merged data from the input list.
+            A single Detections object containing the merged data from the input list.
 
         Example:
             ```python
@@ -1834,16 +2199,20 @@ class Detections:
 
         xyxy = np.vstack([d.xyxy for d in detections_list])
 
-        def stack_or_none(name: str):
+        def stack_or_none(
+            name: str,
+        ) -> npt.NDArray[np.generic] | CompactMask | None:
             if all(d.__getattribute__(name) is None for d in detections_list):
                 return None
             if any(d.__getattribute__(name) is None for d in detections_list):
                 raise ValueError(f"All or none of the '{name}' fields must be None")
-            return (
-                np.vstack([d.__getattribute__(name) for d in detections_list])
-                if name == "mask"
-                else np.hstack([d.__getattribute__(name) for d in detections_list])
-            )
+            if name == "mask":
+                masks = [d.__getattribute__(name) for d in detections_list]
+                if all(isinstance(m, CompactMask) for m in masks):
+                    return CompactMask.merge(masks)
+                # Mixed or all-ndarray: __array__ auto-converts any CompactMask.
+                return np.vstack([np.asarray(m) for m in masks])
+            return np.hstack([d.__getattribute__(name) for d in detections_list])
 
         mask = stack_or_none("mask")
         confidence = stack_or_none("confidence")
@@ -1865,7 +2234,7 @@ class Detections:
             metadata=metadata,
         )
 
-    def get_anchors_coordinates(self, anchor: Position) -> np.ndarray:
+    def get_anchors_coordinates(self, anchor: Position) -> npt.NDArray[np.generic]:
         """
         Calculates and returns the coordinates of a specific anchor point
         within the bounding boxes defined by the `xyxy` attribute. The anchor
@@ -1873,12 +2242,11 @@ class Detections:
         such as `CENTER`, `CENTER_LEFT`, `BOTTOM_RIGHT`, etc.
 
         Args:
-            anchor (Position): An enum specifying the position of the anchor point
-                within the bounding box. Supported positions are defined in the
-                `Position` enum.
+            anchor: An enum specifying the position of the anchor point within the
+                bounding box. Supported positions are defined in the `Position` enum.
 
         Returns:
-            np.ndarray: An array of shape `(n, 2)`, where `n` is the number of bounding
+            An array of shape `(n, 2)`, where `n` is the number of bounding
                 boxes. Each row contains the `[x, y]` coordinates of the specified
                 anchor point for the corresponding bounding box.
 
@@ -1932,8 +2300,8 @@ class Detections:
         raise ValueError(f"{anchor} is not supported.")
 
     def __getitem__(
-        self, index: int | slice | list[int] | np.ndarray | str
-    ) -> Detections | list | np.ndarray | None:
+        self, index: int | slice | list[int] | npt.NDArray[np.generic] | str
+    ) -> Detections | list[Any] | npt.NDArray[np.generic] | None:
         """
         Get a subset of the Detections object or access an item from its data field.
 
@@ -1943,12 +2311,11 @@ class Detections:
         the data dictionary.
 
         Args:
-            index (Union[int, slice, list[int], np.ndarray, str]): The index, indices,
-                or key to access a subset of the Detections or an item from the data.
+            index: The index, indices, or key to access a subset of the Detections
+                or an item from the data.
 
         Returns:
-            Union[Detections, Any]: A subset of the Detections object or an item from
-                the data field.
+            A subset of the Detections object or an item from the data field.
 
         Example:
             ```python
@@ -1967,7 +2334,7 @@ class Detections:
         """
         if isinstance(index, str):
             return self.data.get(index)
-        if self.is_empty():
+        if len(self) == 0:
             return self
         if isinstance(index, int):
             index = [index]
@@ -1981,13 +2348,13 @@ class Detections:
             metadata=self.metadata,
         )
 
-    def __setitem__(self, key: str, value: np.ndarray | list):
+    def __setitem__(self, key: str, value: npt.NDArray[np.generic] | list[Any]) -> None:
         """
         Set a value in the data dictionary of the Detections object.
 
         Args:
-            key (str): The key in the data dictionary to set.
-            value (Union[np.ndarray, list]): The value to set for the key.
+            key: The key in the data dictionary to set.
+            value: The value to set for the key.
 
         Example:
             ```python
@@ -1995,7 +2362,7 @@ class Detections:
             import supervision as sv
             from ultralytics import YOLO
 
-            image = cv2.imread(<SOURCE_IMAGE_PATH>)
+            image = cv2.imread("<SOURCE_IMAGE_PATH>")
             model = YOLO('yolov8s.pt')
 
             result = model(image)[0]
@@ -2017,33 +2384,72 @@ class Detections:
         self.data[key] = value
 
     @property
-    def area(self) -> np.ndarray:
+    def area(self) -> npt.NDArray[np.generic]:
         """
         Calculate the area of each detection in the set of object detections.
         If masks field is defined property returns are of each mask.
         If only box is given property return area of each box.
 
         Returns:
-          np.ndarray: An array of floats containing the area of each detection
-            in the format of `(area_1, area_2, , area_n)`,
-            where n is the number of detections.
+            An array of floats containing the area of each detection
+                in the format of `(area_1, area_2, ..., area_n)`,
+                where n is the number of detections.
         """
         if self.mask is not None:
+            if isinstance(self.mask, CompactMask):
+                return self.mask.area
             return np.array([np.sum(mask) for mask in self.mask])
         else:
             return self.box_area
 
     @property
-    def box_area(self) -> np.ndarray:
+    def box_area(self) -> npt.NDArray[np.generic]:
         """
         Calculate the area of each bounding box in the set of object detections.
 
         Returns:
-            np.ndarray: An array of floats containing the area of each bounding
-                box in the format of `(area_1, area_2, , area_n)`,
+            An array of floats containing the area of each bounding
+                box in the format of `(area_1, area_2, ..., area_n)`,
                 where n is the number of detections.
         """
         return (self.xyxy[:, 3] - self.xyxy[:, 1]) * (self.xyxy[:, 2] - self.xyxy[:, 0])
+
+    @property
+    def box_aspect_ratio(self) -> npt.NDArray[np.generic]:
+        """
+        Compute the aspect ratio (width divided by height) for each bounding box.
+
+        Returns:
+            Array of shape `(N,)` containing aspect ratios, where `N` is the
+                number of boxes (width / height for each box).
+
+        Examples:
+            ```python
+            import numpy as np
+            import supervision as sv
+
+            xyxy = np.array([
+                [10, 10, 50, 50],
+                [60, 10, 180, 50],
+                [10, 60, 50, 180],
+            ])
+
+            detections = sv.Detections(xyxy=xyxy)
+
+            detections.box_aspect_ratio
+            # array([1.0, 3.0, 0.33333333])
+
+            ar = detections.box_aspect_ratio
+            detections[(ar < 2.0) & (ar > 0.5)].xyxy
+            # array([[10., 10., 50., 50.]])
+            ```
+        """
+        widths = self.xyxy[:, 2] - self.xyxy[:, 0]
+        heights = self.xyxy[:, 3] - self.xyxy[:, 1]
+
+        aspect_ratios = np.full_like(widths, np.nan, dtype=np.float64)
+        np.divide(widths, heights, out=aspect_ratios, where=heights != 0)
+        return aspect_ratios
 
     def with_nms(
         self,
@@ -2056,17 +2462,17 @@ class Detections:
         from a segmentation model, the IoU mask is applied. Otherwise, box IoU is used.
 
         Args:
-            threshold (float): The intersection-over-union threshold
-                to use for non-maximum suppression. I'm the lower the value the more
+            threshold: The intersection-over-union threshold
+                to use for non-maximum suppression. The lower the value the more
                 restrictive the NMS becomes. Defaults to 0.5.
-            class_agnostic (bool): Whether to perform class-agnostic
+            class_agnostic: Whether to perform class-agnostic
                 non-maximum suppression. If True, the class_id of each detection
                 will be ignored. Defaults to False.
-            overlap_metric (OverlapMetric): Metric used to compute the degree of
+            overlap_metric: Metric used to compute the degree of
                 overlap between pairs of masks or boxes (e.g., IoU, IoS).
 
         Returns:
-            Detections: A new Detections object containing the subset of detections
+            A new Detections object containing the subset of detections
                 after non-maximum suppression.
 
         Raises:
@@ -2109,7 +2515,7 @@ class Detections:
                 overlap_metric=overlap_metric,
             )
 
-        return self[indices]
+        return cast(Detections, self[indices])
 
     def with_nmm(
         self,
@@ -2121,16 +2527,16 @@ class Detections:
         Perform non-maximum merging on the current set of object detections.
 
         Args:
-            threshold (float): The intersection-over-union threshold
+            threshold: The intersection-over-union threshold
                 to use for non-maximum merging. Defaults to 0.5.
-            class_agnostic (bool): Whether to perform class-agnostic
+            class_agnostic: Whether to perform class-agnostic
                 non-maximum merging. If True, the class_id of each detection
                 will be ignored. Defaults to False.
-            overlap_metric (OverlapMetric): Metric used to compute the degree of
+            overlap_metric: Metric used to compute the degree of
                 overlap between pairs of masks or boxes (e.g., IoU, IoS).
 
         Returns:
-            Detections: A new Detections object containing the subset of detections
+            A new Detections object containing the subset of detections
                 after non-maximum merging.
 
         Raises:
@@ -2175,9 +2581,9 @@ class Detections:
                 overlap_metric=overlap_metric,
             )
 
-        result = []
+        result: list[Detections] = []
         for merge_group in merge_groups:
-            unmerged_detections = [self[i] for i in merge_group]
+            unmerged_detections = [cast(Detections, self[i]) for i in merge_group]
             merged_detections = merge_inner_detections_objects_without_iou(
                 unmerged_detections
             )
@@ -2190,7 +2596,7 @@ def merge_inner_detection_object_pair(
     detections_1: Detections, detections_2: Detections
 ) -> Detections:
     """
-    Merges two Detections object into a single Detections object.
+    Merges two Detections objects into a single Detections object.
     Assumes each Detections contains exactly one object.
 
     A `winning` detection is determined based on the confidence score of the two
@@ -2198,18 +2604,16 @@ def merge_inner_detection_object_pair(
     `class_id`, `tracker_id`, and `data` to include in the merged Detections object.
 
     The resulting `confidence` of the merged object is calculated by the weighted
-    contribution of ea detection to the merged object.
+    contribution of each detection to the merged object.
     The bounding boxes and masks of the two input detections are merged into a
     single bounding box and mask, respectively.
 
     Args:
-        detections_1 (Detections):
-            The first Detections object
-        detections_2 (Detections):
-            The second Detections object
+        detections_1: The first Detections object.
+        detections_2: The second Detections object.
 
     Returns:
-        Detections: A new Detections object, with merged attributes.
+        A new Detections object, with merged attributes.
 
     Raises:
         ValueError: If the input Detections objects do not have exactly 1 detected
@@ -2221,7 +2625,7 @@ def merge_inner_detection_object_pair(
         import supervision as sv
         from inference import get_model
 
-        image = cv2.imread(<SOURCE_IMAGE_PATH>)
+        image = cv2.imread("<SOURCE_IMAGE_PATH>")
         model = get_model(model_id="yolov8s-640")
 
         result = model.infer(image)[0]
@@ -2241,6 +2645,8 @@ def merge_inner_detection_object_pair(
     if detections_1.confidence is None and detections_2.confidence is None:
         merged_confidence = None
     else:
+        assert detections_1.confidence is not None
+        assert detections_2.confidence is not None
         detection_1_area = (xyxy_1[2] - xyxy_1[0]) * (xyxy_1[3] - xyxy_1[1])
         detections_2_area = (xyxy_2[2] - xyxy_2[0]) * (xyxy_2[3] - xyxy_2[1])
         merged_confidence = (
@@ -2258,7 +2664,7 @@ def merge_inner_detection_object_pair(
     else:
         merged_mask = np.logical_or(detections_1.mask, detections_2.mask)
 
-    if detections_1.confidence is None and detections_2.confidence is None:
+    if detections_1.confidence is None or detections_2.confidence is None:
         winning_detection = detections_1
     elif detections_1.confidence[0] >= detections_2.confidence[0]:
         winning_detection = detections_1
@@ -2280,7 +2686,7 @@ def merge_inner_detection_object_pair(
 
 def merge_inner_detections_objects(
     detections: list[Detections],
-    threshold=0.5,
+    threshold: float = 0.5,
     overlap_metric: OverlapMetric = OverlapMetric.IOU,
 ) -> Detections:
     """
