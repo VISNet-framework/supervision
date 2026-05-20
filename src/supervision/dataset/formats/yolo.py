@@ -103,6 +103,7 @@ def _relative_image_path(image_path: str, image_directory_name="images"):
 #     base_name, _ = os.path.splitext(image_name)
 #     return base_name + ".txt"
 
+
 def _image_name_to_annotation_name(image_name: str) -> str:
     """
     Returns the yolo-style annotation path.
@@ -353,7 +354,7 @@ def save_yolo_annotation(
     image_shape = load_image_shape_quick(image_path)
     annotation = dataset.annotations[image_path]
 
-    yolo_annotations_path_rel = _image_name_to_annotation_name(image_path=image_path)
+    yolo_annotations_path_rel = _image_name_to_annotation_name(image_name=image_path)
     yolo_annotations_path_abs = (
         Path(annotations_directory_path) / yolo_annotations_path_rel
     )
