@@ -57,7 +57,7 @@ class SingleDetection:
     xyxy: list[float]
     class_id: int
     confidence: float | None = None
-    mask: npt.NDArray[np.uint8] | None = None
+    mask: npt.NDArray[np.bool] | None = None
     tracker_id: int | None = None
     data: dict | None = field(default_factory=dict)
 
@@ -108,7 +108,7 @@ def merge_detections_to_dict(
     if len(tracker_ids) > 0:
         result["tracker_id"] = tracker_ids
 
-    masks = np.array([d.mask for d in dets if d.mask is not None], dtype=np.uint8)
+    masks = np.array([d.mask for d in dets if d.mask is not None], dtype=np.bool)
     if len(masks) > 0:
         result["mask"] = masks
 
@@ -289,7 +289,7 @@ def darwin_ellipse_to_xyxyxyxy(darwin_ellipse: dict) -> list[list[float]]:
 
 def darwin_ellipse_to_mask(
     darwin_ellipse: dict, height: int, width: int
-) -> npt.NDArray[np.uint8]:
+) -> npt.NDArray[np.bool]:
     """
     Creates a binary mask with a filled ellipse.
 
@@ -323,7 +323,7 @@ def darwin_ellipse_to_mask(
         color=1,
         thickness=-1,
     )
-    return mask
+    return mask.astype(bool)
 
 
 def empty_mask(height: int, width: int) -> npt.NDArray[np.uint8]:
@@ -362,7 +362,7 @@ def darwin_polygon_to_mask(
         polygons.append(polygon)
 
     cv2.fillPoly(mask, polygons, color=1)
-    return mask
+    return mask.astype(np.bool)
 
 
 def darwin_bounding_box_to_xyxy(darwin_bounding_box: dict) -> list[float]:

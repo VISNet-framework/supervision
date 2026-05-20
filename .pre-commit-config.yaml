@@ -53,6 +53,7 @@ repos:
     hooks:
       - id: ruff-check
         args: ["--fix"]
+        files: ^src/
       - id: ruff-format
         types_or: [python, pyi, jupyter]
 
