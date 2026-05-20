@@ -6,7 +6,7 @@ import pytest
 
 from supervision import LineZone
 from supervision.geometry.core import Point, Position, Vector
-from test.test_utils import mock_detections
+from tests.test_utils import mock_detections
 
 
 @pytest.mark.parametrize(

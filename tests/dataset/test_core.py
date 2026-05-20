@@ -5,7 +5,7 @@ from contextlib import ExitStack as DoesNotRaise
 import pytest
 
 from supervision import DetectionDataset
-from test.test_utils import mock_detections
+from tests.test_utils import mock_detections
 
 
 @pytest.mark.parametrize(

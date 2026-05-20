@@ -11,7 +11,7 @@ from supervision.metrics.detection import (
     MeanAveragePrecision,
     detections_to_tensor,
 )
-from test.test_utils import assert_almost_equal, mock_detections
+from tests.test_utils import assert_almost_equal, mock_detections
 
 CLASSES = np.arange(80)
 NUM_CLASSES = len(CLASSES)

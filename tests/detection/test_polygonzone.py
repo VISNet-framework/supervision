@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 import supervision as sv
-from test.test_utils import mock_detections
+from tests.test_utils import mock_detections
 
 DETECTION_BOXES = np.array(
     [

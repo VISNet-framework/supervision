@@ -7,7 +7,7 @@ import pytest
 
 from supervision.annotators.utils import ColorLookup, resolve_color_idx
 from supervision.detection.core import Detections
-from test.test_utils import mock_detections
+from tests.test_utils import mock_detections
 
 
 @pytest.mark.parametrize(
