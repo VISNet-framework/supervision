@@ -43,4 +43,4 @@ jobs:
 
       - name: Lint with Ruff
         run: |
-          ruff check supervision
+          ruff check src/supervision
