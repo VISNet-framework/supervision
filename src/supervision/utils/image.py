@@ -13,9 +13,7 @@ import numpy as np
 import numpy.typing as npt
 from PIL import ExifTags, Image
 
-from supervision.annotators.base import ImageType
 from deprecate import deprecated
-from PIL import Image
 
 from supervision.draw.base import ImageType
 from supervision.draw.color import Color, unify_to_bgr

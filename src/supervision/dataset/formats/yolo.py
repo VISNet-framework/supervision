@@ -99,7 +99,11 @@ def _relative_image_path(image_path: str, image_directory_name="images"):
     return relative_path_image
 
 
-def _image_path_to_annotation_path(image_path: str) -> str:
+# def _image_name_to_annotation_name(image_name: str) -> str:
+#     base_name, _ = os.path.splitext(image_name)
+#     return base_name + ".txt"
+
+def _image_name_to_annotation_name(image_name: str) -> str:
     """
     Returns the yolo-style annotation path.
 
@@ -107,7 +111,7 @@ def _image_path_to_annotation_path(image_path: str) -> str:
     For nested image directories, the annotations should be stored in a nested
     directory as well.
     """
-    relative_path_image = _relative_image_path(image_path)
+    relative_path_image = _relative_image_path(image_name)
     base_name, _ = os.path.splitext(relative_path_image)
     relative_path_annotation = base_name + ".txt"
     return relative_path_annotation
@@ -349,7 +353,7 @@ def save_yolo_annotation(
     image_shape = load_image_shape_quick(image_path)
     annotation = dataset.annotations[image_path]
 
-    yolo_annotations_path_rel = _image_path_to_annotation_path(image_path=image_path)
+    yolo_annotations_path_rel = _image_name_to_annotation_name(image_path=image_path)
     yolo_annotations_path_abs = (
         Path(annotations_directory_path) / yolo_annotations_path_rel
     )
