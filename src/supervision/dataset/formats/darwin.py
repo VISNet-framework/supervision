@@ -1,7 +1,10 @@
 import os
 import uuid
 import warnings
+from functools import partial
+from multiprocessing.pool import ThreadPool
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import cv2
 import numpy as np
@@ -18,6 +21,10 @@ from supervision.utils.file import (
     find_valid_images_and_annotations,
     save_json_file,
 )
+from supervision.utils.image import load_image_shape_quick
+
+if TYPE_CHECKING:
+    pass
 
 
 def load_darwin_annotations(
@@ -108,16 +115,14 @@ def save_darwin_annotations(
     """
     annotation_directory_path = Path(annotation_directory_path)
     annotation_directory_path.mkdir(parents=True, exist_ok=True)
-    for image_path, image, annotation in dataset:
-        image_filename = Path(image_path).name
-        darwin_annotation_name = Path(image_path).stem + ".json"
-        darwin_annotation_path = os.path.join(
-            annotation_directory_path, darwin_annotation_name
-        )
-        annotation_dict = detections_to_darwin_dict(
-            detections=annotation,
-            image_shape=image.shape,
-            image_filename=Path(image_filename),
+    with tqdm.tqdm(
+        total=len(dataset),
+        desc="Saving Darwin annotations",
+    ) as progress_bar:
+        worker = partial(
+            save_darwin_annotation,
+            dataset=dataset,
+            annotation_directory_path=annotation_directory_path,
             darwin_dataset_name=darwin_dataset_name,
             classes=classes,
             darwin_folder=darwin_folder,
@@ -126,10 +131,52 @@ def save_darwin_annotations(
             max_image_area_percentage=max_image_area_percentage,
             approximation_percentage=approximation_percentage,
         )
-        save_json_file(
-            file_path=darwin_annotation_path,
-            data=annotation_dict,
-        )
+
+        def _save_and_update(index: int) -> None:
+            worker(index)
+            progress_bar.update(1)
+
+        with ThreadPool() as pool:
+            pool.map(_save_and_update, range(len(dataset)))
+    return
+
+
+def save_darwin_annotation(
+    index: int,
+    dataset,
+    annotation_directory_path: str,
+    darwin_dataset_name: str,
+    classes: list[str],
+    darwin_folder: str,
+    tags: list,
+    min_image_area_percentage: float = 0.0,
+    max_image_area_percentage: float = 1.0,
+    approximation_percentage: float = 0.75,
+):
+    image_path = dataset.image_paths[index]
+    image_shape = load_image_shape_quick(image_path)
+    annotation = dataset.annotations[image_path]
+    image_filename = Path(image_path).name
+    darwin_annotation_name = Path(image_path).stem + ".json"
+    darwin_annotation_path = os.path.join(
+        annotation_directory_path, darwin_annotation_name
+    )
+    annotation_dict = detections_to_darwin_dict(
+        detections=annotation,
+        image_shape=image_shape,
+        image_filename=Path(image_filename),
+        darwin_dataset_name=darwin_dataset_name,
+        classes=classes,
+        darwin_folder=darwin_folder,
+        tags=tags,
+        min_image_area_percentage=min_image_area_percentage,
+        max_image_area_percentage=max_image_area_percentage,
+        approximation_percentage=approximation_percentage,
+    )
+    save_json_file(
+        file_path=darwin_annotation_path,
+        data=annotation_dict,
+    )
     return
 
 

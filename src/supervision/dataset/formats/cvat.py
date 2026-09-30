@@ -8,7 +8,7 @@ from natsort import natsorted
 
 from supervision.detection.compact_mask import CompactMask
 from supervision.detection.core import Detections
-from supervision.detection.utils.converters import mask_to_xyxy, polygon_to_mask
+from supervision.detection.utils.converters import mask_to_xyxy, polygons_to_mask
 from supervision.utils.image import load_image_shape_quick
 
 
@@ -18,22 +18,25 @@ def load_cvat_video_annotations(
     attribute_class: str = "class",
     additional_float_attributes: list[str] | None = None,
 ) -> tuple[list[str], list[str], dict[str, Detections]]:
-    """
-    Load cvat video annotations from image directory and .xml annotation file.
+    """Load CVAT video annotations, merging polygons by object and frame.
 
-    attribute_class : the track attribute to use as the class name.
-    # TODO add option to load other attributes as well
+    Args:
+        images_directory_path: Directory containing the video frame images.
+        annotation_path: Path to the CVAT video annotation XML file.
+        attribute_class: Track attribute to use as the class name.
+        additional_float_attributes: Reserved for loading extra track attributes.
+
+    Returns:
+        A tuple containing sorted class names, ordered image paths, and a mapping
+        from each image path to its detections. Polygons from separate CVAT tracks
+        that share an object ID in a frame are merged into one instance mask.
     """
     if additional_float_attributes is not None:
         raise NotImplementedError("Please make this")
-    image_paths = []
-    annotations = {}
 
     images_directory_path = Path(images_directory_path).resolve()
-    # find image paths, we assume only images in directory
-    image_paths = natsorted(str(f) for f in images_directory_path.glob("*"))
-    # find image resolution (for video we assume the same resolution for every frame)
-    (height, width, _) = load_image_shape_quick(image_paths[0])
+    image_paths = natsorted(str(path) for path in images_directory_path.glob("*"))
+    height, width, _ = load_image_shape_quick(image_paths[0])
 
     annotation_path = Path(annotation_path).resolve()
     if not annotation_path.is_file():
@@ -41,69 +44,86 @@ def load_cvat_video_annotations(
     ann_tree = ET.parse(annotation_path)
     ann_root = ann_tree.getroot()
 
-    framedata = defaultdict(list)
-    classnames = set()
+    frame_polygons: defaultdict[int, defaultdict[int, list[tuple[str, int, str]]]] = (
+        defaultdict(lambda: defaultdict(list))
+    )
+    classnames: set[str] = set()
 
     tracks = ann_root.findall("track")
     for track in tqdm.tqdm(tracks, colour="blue", unit="track"):
         track_id = int(track.attrib["id"])
         classname = track.find(f"attribute[@name='{attribute_class}']").text
+        object_id = int(track.find("attribute[@name='object_id']").text)
         classnames.add(classname)
-        # trackdata[track_id]["class"]
-        # for attribute_name in additional_float_attributes:
-        #     attribute_value = track.find(f"attribute[@name='{attribute_name}']").text
-        #     additional_data[track_id][attribute_name] = float(attribute_value)
 
-        # find all the image frames it is part of
-        for poly in track.findall("polygon"):
-            frame_id = int(poly.attrib["frame"])
-            points_str = poly.attrib["points"]
-            points = np.array(
-                [
-                    [float(p.split(",")[0]), float(p.split(",")[1])]
-                    for p in points_str.split(";")
-                ]
-            )
-            mask = polygon_to_mask(points, resolution_wh=(width, height))[None, ...]
-            xyxy = mask_to_xyxy(masks=mask)
-            mask_compact = CompactMask.from_dense(
-                mask,
-                xyxy=xyxy,
-                image_shape=(height, width),
-            )
-
-            framedata[frame_id].append(
-                {
-                    "xyxy": xyxy,
-                    "mask": mask_compact,
-                    "track_id": track_id,
-                    "classname": classname,
-                }
+        # Group XML polygons first so masks are rasterized only after frame/object
+        # membership and each polygon's track metadata are known.
+        for polygon in track.findall("polygon"):
+            frame_id = int(polygon.attrib["frame"])
+            frame_polygons[frame_id][object_id].append(
+                (polygon.attrib["points"], track_id, classname)
             )
 
     classnames_sorted = sorted(classnames)
-    for frame_id in range(len(image_paths)):
-        image_path = image_paths[frame_id]
-        if len(framedata[frame_id]) == 0:
-            annotations[image_path] = Detections.empty()
-        else:
-            # masks = np.array([d["mask"] for d in framedata[frame_id]], dtype=bool)
-            masks = CompactMask.merge([d["mask"] for d in framedata[frame_id]])
-            class_ids = np.array(
-                [classnames_sorted.index(d["classname"]) for d in framedata[frame_id]]
-            )
-            track_ids = np.array([d["track_id"] for d in framedata[frame_id]])
-            xyxy = np.array([d["xyxy"][0] for d in framedata[frame_id]])
+    class_to_id = {
+        classname: class_id for class_id, classname in enumerate(classnames_sorted)
+    }
+    annotations: dict[str, Detections] = {}
 
-            annotations[image_path] = Detections(
-                xyxy=xyxy,
-                mask=masks,
-                class_id=class_ids,
-                tracker_id=track_ids,
+    for frame_id in tqdm.trange(len(image_paths), unit="frame"):
+        image_path = image_paths[frame_id]
+        object_polygons = frame_polygons[frame_id]
+        if not object_polygons:
+            annotations[image_path] = Detections.empty()
+            continue
+
+        compact_masks: list[CompactMask] = []
+        xyxy_list: list[np.ndarray] = []
+        class_ids: list[int] = []
+        object_ids: list[int] = []
+
+        for object_id, polygons in object_polygons.items():
+            track_ids = {track_id for _, track_id, _ in polygons}
+            object_classnames = {classname for _, _, classname in polygons}
+            if len(object_classnames) != 1:
+                raise ValueError(
+                    f"Object ID {object_id} has conflicting class names in frame "
+                    f"{frame_id} across CVAT tracks {sorted(track_ids)}: "
+                    f"{sorted(object_classnames)}"
+                )
+            classname = next(iter(object_classnames))
+
+            polygons_np = [
+                np.fromstring(points_str.replace(";", ","), sep=",").reshape(-1, 2)
+                for points_str, _, _ in polygons
+            ]
+            merged_mask = polygons_to_mask(
+                polygons_np, resolution_wh=(width, height)
+            ).astype(bool)
+
+            object_xyxy = mask_to_xyxy(merged_mask[None, ...])
+            compact_masks.append(
+                CompactMask.from_dense(
+                    merged_mask[None, ...],
+                    xyxy=object_xyxy,
+                    image_shape=(height, width),
+                )
             )
+            xyxy_list.append(object_xyxy[0])
+            class_ids.append(class_to_id[classname])
+            # The object ID is stable when CVAT splits one object across tracks.
+            object_ids.append(object_id)
+
+        annotations[image_path] = Detections(
+            xyxy=np.asarray(xyxy_list),
+            mask=CompactMask.merge(compact_masks),
+            class_id=np.asarray(class_ids),
+            tracker_id=np.asarray(object_ids),
+        )
+
     return classnames_sorted, image_paths, annotations
 
 
-def save_cvat_video_annotations():
-    # not needed?
+def save_cvat_video_annotations() -> None:
+    """Placeholder for the not-yet-implemented CVAT video exporter."""
     return

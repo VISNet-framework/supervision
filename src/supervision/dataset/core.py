@@ -441,6 +441,9 @@ class DetectionDataset(BaseDataset):
         darwin_dataset_name: str,
         images_directory_path: str | None = None,
         annotations_directory_path: str | None = None,
+        min_image_area_percentage: float = 0.0,
+        max_image_area_percentage: float = 1.0,
+        approximation_percentage: float = 0.0,
     ) -> None:
         """
         Exports the dataset to darwinv7 format. This method saves the images
@@ -465,6 +468,9 @@ class DetectionDataset(BaseDataset):
                 annotation_directory_path=annotations_directory_path,
                 classes=self.classes,
                 darwin_dataset_name=darwin_dataset_name,
+                min_image_area_percentage=min_image_area_percentage,
+                max_image_area_percentage=max_image_area_percentage,
+                approximation_percentage=approximation_percentage,
             )
         return
 
