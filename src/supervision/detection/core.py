@@ -289,6 +289,7 @@ class Detections:
         with_track_ids: bool = False,
         skip_unknown_classes: bool = True,
         metadata: dict = {},
+        use_compact_mask: bool = False,
     ) -> Detections:
         result_dict = darwin_annotations_to_detections_dict(
             json_name=json_name,
@@ -298,6 +299,7 @@ class Detections:
             with_track_ids=with_track_ids,
             skip_unknown_classes=skip_unknown_classes,
             metadata=metadata,
+            use_compact_mask=use_compact_mask,
         )
         if len(result_dict["xyxy"]) == 0:
             obj = cls.empty()

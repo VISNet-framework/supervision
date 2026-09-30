@@ -29,6 +29,9 @@ from supervision.dataset.formats.createml import (
     load_createml_annotations,
     save_createml_annotations,
 )
+from supervision.dataset.formats.cvat import (
+    load_cvat_video_annotations,
+)
 from supervision.dataset.formats.darwin import (
     load_darwin_annotations,
     save_darwin_annotations,
@@ -389,6 +392,27 @@ class DetectionDataset(BaseDataset):
         if all_in_memory:
             merged_dataset._images_in_memory = images_in_memory
         return merged_dataset
+
+    @classmethod
+    def from_cvat_video(
+        cls,
+        images_directory_path: str,
+        annotations_path: str,
+        attribute_class: str = "class",
+        additional_attributes: str | None = None,
+    ) -> DetectionDataset:
+        """
+        Load dataset from CVAT video 1.1 format
+
+        attribute_class : the attribute to use as the classname
+        """
+        classes, images, annotations = load_cvat_video_annotations(
+            images_directory_path=images_directory_path,
+            annotation_path=annotations_path,
+            attribute_class=attribute_class,
+            additional_float_attributes=additional_attributes,
+        )
+        return DetectionDataset(classes=classes, images=images, annotations=annotations)
 
     @classmethod
     def from_darwin(
