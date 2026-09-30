@@ -27,6 +27,7 @@ def load_darwin_annotations(
     force_masks: bool = False,
     force_track_ids: bool = False,
     with_ellipse_as: bool | None = None,
+    use_compact_mask: bool = False,
 ) -> tuple[list[str], list[str], dict[str, Detections]]:
     """
     Load Darwin annotations from a directory.
@@ -41,6 +42,7 @@ def load_darwin_annotations(
             "oriented_bounding_box", "mask", or None to ignore.
             Default is None.
             "oriented_bounding_box" requires all annotations to be ellipses.
+        use_compact_mask (bool): Use RLE mask instead of array. Default False.
     """
     ## TODO implement loading of metadata using json:
     # current idea at image location replace.png/.jpg with .json
@@ -66,6 +68,7 @@ def load_darwin_annotations(
                 skip_unknown_classes=True,
                 with_track_ids=force_track_ids,
                 with_ellipse_as=with_ellipse_as,
+                use_compact_mask=use_compact_mask,
             )
             images.append(str(img_name))
             annotations[str(img_name)] = annotation
