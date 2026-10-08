@@ -75,6 +75,27 @@ def polygon_to_mask(
     return mask
 
 
+def polygons_to_mask(
+    polygons: list[npt.NDArray[np.number]],
+    resolution_wh: tuple[int, int],
+) -> npt.NDArray[np.uint8]:
+    """Generate a mask from a list of polygons.
+
+    Args:
+        polygons: Lists of polygons for which the mask should be generated,
+            given as a list of vertices.
+        resolution_wh: The width and height of the desired resolution.
+
+    Returns:
+        The generated 2D mask, where the polygon is marked with
+            `1`s and the rest is filled with `0`s.
+    """
+    width, height = map(int, resolution_wh)
+    mask = np.zeros((height, width), dtype=np.uint8)
+    cv2.fillPoly(mask, [polygon.astype(np.int32) for polygon in polygons], color=(1,))
+    return mask
+
+
 def xywh_to_xyxy(xywh: npt.NDArray[np.number]) -> npt.NDArray[np.number]:
     """
     Converts bounding box coordinates from `(x, y, width, height)`

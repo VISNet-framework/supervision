@@ -12,6 +12,7 @@ import numpy.typing as npt
 from supervision.config import (
     ORIENTED_BOX_COORDINATES,
 )
+from supervision.detection.compact_mask import CompactMask
 from supervision.utils.file import (
     read_json_file,
 )
@@ -63,7 +64,9 @@ class SingleDetection:
 
 
 def merge_detections_to_dict(
-    dets: list[SingleDetection], force_obb: bool = False
+    dets: list[SingleDetection],
+    force_obb: bool = False,
+    use_compact_mask: bool = False,
 ) -> dict:
     """
     Merge a list of SingleDetection objects into a dictionary.
@@ -110,7 +113,14 @@ def merge_detections_to_dict(
 
     masks = np.array([d.mask for d in dets if d.mask is not None], dtype=np.bool)
     if len(masks) > 0:
-        result["mask"] = masks
+        if use_compact_mask:
+            result["mask"] = CompactMask.from_dense(
+                masks,
+                xyxy=xyxy,
+                image_shape=(masks.shape[1], masks.shape[2]),
+            )
+        else:
+            result["mask"] = masks
 
     confidences = np.array(
         [d.confidence for d in dets if d.confidence is not None], dtype=np.float32
@@ -386,6 +396,7 @@ def darwin_annotations_to_detections_dict(
     with_track_ids: bool = False,
     skip_unknown_classes: bool = True,
     metadata: dict = {},
+    use_compact_mask: bool = False,
 ) -> dict:
     """
     Load Darwin annotations from a JSON file and convert them to
@@ -405,6 +416,7 @@ def darwin_annotations_to_detections_dict(
             "oriented_bounding_box" requires all annotations to be ellipses.
         with_track_ids (bool): Whether to include tracking IDs.
         skip_unknown_classes (bool): Whether to skip unknown classes. Default is True.
+        use_compact_mask (bool): Use RLE mask instead of array. Default is False.
 
     Returns:
         dict: Dictionary containing detection data, including metadata with properties.
@@ -480,7 +492,9 @@ def darwin_annotations_to_detections_dict(
             )
 
     result_dict = merge_detections_to_dict(
-        single_detections, force_obb=(with_ellipse_as == "oriented_bounding_box")
+        single_detections,
+        force_obb=(with_ellipse_as == "oriented_bounding_box"),
+        use_compact_mask=use_compact_mask,
     )
     if len(metadata) > 0:
         result_dict["metadata"] = metadata

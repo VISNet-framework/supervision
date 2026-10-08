@@ -29,6 +29,9 @@ from supervision.dataset.formats.createml import (
     load_createml_annotations,
     save_createml_annotations,
 )
+from supervision.dataset.formats.cvat import (
+    load_cvat_video_annotations,
+)
 from supervision.dataset.formats.darwin import (
     load_darwin_annotations,
     save_darwin_annotations,
@@ -391,6 +394,27 @@ class DetectionDataset(BaseDataset):
         return merged_dataset
 
     @classmethod
+    def from_cvat_video(
+        cls,
+        images_directory_path: str,
+        annotations_path: str,
+        attribute_class: str = "class",
+        additional_attributes: str | None = None,
+    ) -> DetectionDataset:
+        """
+        Load dataset from CVAT video 1.1 format
+
+        attribute_class : the attribute to use as the classname
+        """
+        classes, images, annotations = load_cvat_video_annotations(
+            images_directory_path=images_directory_path,
+            annotation_path=annotations_path,
+            attribute_class=attribute_class,
+            additional_float_attributes=additional_attributes,
+        )
+        return DetectionDataset(classes=classes, images=images, annotations=annotations)
+
+    @classmethod
     def from_darwin(
         cls,
         images_directory_path: str,
@@ -399,6 +423,7 @@ class DetectionDataset(BaseDataset):
         force_masks: bool = False,
         force_track_ids: bool = False,
         with_ellipse_as: str | None = None,
+        use_compact_mask: bool = False,
     ) -> DetectionDataset:
         classes, images, annotations = load_darwin_annotations(
             images_directory_path=images_directory_path,
@@ -407,6 +432,7 @@ class DetectionDataset(BaseDataset):
             force_masks=force_masks,
             force_track_ids=force_track_ids,
             with_ellipse_as=with_ellipse_as,
+            use_compact_mask=use_compact_mask,
         )
         return DetectionDataset(classes=classes, images=images, annotations=annotations)
 
@@ -415,6 +441,9 @@ class DetectionDataset(BaseDataset):
         darwin_dataset_name: str,
         images_directory_path: str | None = None,
         annotations_directory_path: str | None = None,
+        min_image_area_percentage: float = 0.0,
+        max_image_area_percentage: float = 1.0,
+        approximation_percentage: float = 0.0,
     ) -> None:
         """
         Exports the dataset to darwinv7 format. This method saves the images
@@ -439,6 +468,9 @@ class DetectionDataset(BaseDataset):
                 annotation_directory_path=annotations_directory_path,
                 classes=self.classes,
                 darwin_dataset_name=darwin_dataset_name,
+                min_image_area_percentage=min_image_area_percentage,
+                max_image_area_percentage=max_image_area_percentage,
+                approximation_percentage=approximation_percentage,
             )
         return
 
