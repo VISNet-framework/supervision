@@ -130,6 +130,9 @@ def dota_annotation_to_detections(
         xyxys.append(xyxy)
         class_ids.append(classes.index(classname))
 
+    if len(xyxys) == 0:
+        return Detections.empty()
+
     xyxys = np.array(xyxys, dtype=np.float32)
     class_ids = np.array(class_ids, dtype=np.int32)
     data[ORIENTED_BOX_COORDINATES] = np.array(
@@ -160,12 +163,12 @@ def find_valid_images_and_annotations(
     annotation_paths = natsorted(annotation_paths)
 
     image_paths = []
-    for annotation_path in annotation_paths:
+    for ann_path in annotation_paths:
         # find the corresponding image path
-        image_stem = annotation_path.stem
+        image_stem = ann_path.stem
         image_path = image_candidate_paths[image_candidate_stems.index(image_stem)]
         image_paths.append(image_path)
-    return image_paths, annotation_path
+    return image_paths, annotation_paths
 
 
 def load_dotav2_annotations(
@@ -182,6 +185,6 @@ def load_dotav2_annotations(
     for image_path, annotation_path in zip(image_paths, annotation_paths):
         image_path = str(image_path)
         images.append(image_path)
-        annotation = dota_annotation_to_detections(annotation_path)
+        annotation = dota_annotation_to_detections(annotation_path, classes=classes)
         annotations[image_path] = annotation
     return classes, images, annotations
